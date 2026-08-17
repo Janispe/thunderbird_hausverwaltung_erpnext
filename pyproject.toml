@@ -6,6 +6,7 @@ authors = [
 description = "Thunderbird bridge for the Frappe Hausverwaltung app"
 requires-python = ">=3.10"
 readme = "README.md"
+license = { file = "LICENSE" }
 dynamic = ["version"]
 dependencies = []
 
@@ -27,4 +28,3 @@ target-version = "py310"
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "tab"
-
