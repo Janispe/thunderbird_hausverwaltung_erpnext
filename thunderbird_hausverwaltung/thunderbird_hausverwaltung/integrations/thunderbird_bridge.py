@@ -1,0 +1,351 @@
+from __future__ import annotations
+
+import json
+import re
+import uuid
+from typing import Any
+
+import frappe
+from frappe import _
+from frappe.utils import add_to_date, cint, now_datetime, validate_email_address
+
+ALLOWED_ROLES = {"Hausverwalter", "System Manager"}
+COMMAND_TTL_MINUTES = 10
+REDELIVERY_AFTER_SECONDS = 30
+MAX_DELIVERY_ATTEMPTS = 5
+MAX_EMAIL_ADDRESSES = 50
+MAX_TAGS = 50
+MAX_COMPOSE_BODY_LENGTH = 100_000
+DEVICE_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{8,128}$")
+
+
+def _require_bridge_user() -> str:
+	user = (frappe.session.user or "").strip()
+	if not user or user == "Guest":
+		frappe.throw(_("Anmeldung erforderlich."), frappe.PermissionError)
+	if not ALLOWED_ROLES.intersection(set(frappe.get_roles(user))):
+		frappe.throw(
+			_('Für die Thunderbird-Brücke wird die Rolle "Hausverwalter" oder "System Manager" benötigt.'),
+			frappe.PermissionError,
+		)
+	return user
+
+
+def _normalize_device_id(value: Any) -> str:
+	device_id = str(value or "").strip()
+	if not DEVICE_ID_PATTERN.fullmatch(device_id):
+		frappe.throw(_("Ungültige Thunderbird Device-ID."))
+	return device_id
+
+
+def _as_list(value: Any) -> list[str]:
+	if value is None or value == "":
+		return []
+	if isinstance(value, str):
+		try:
+			decoded = json.loads(value)
+		except ValueError:
+			decoded = [item.strip() for item in value.split(",")]
+		value = decoded
+	if not isinstance(value, (list, tuple)):
+		frappe.throw(_("Suchkriterien müssen als Liste übergeben werden."))
+	result: list[str] = []
+	seen: set[str] = set()
+	for item in value:
+		normalized = str(item or "").strip()
+		key = normalized.casefold()
+		if normalized and key not in seen:
+			seen.add(key)
+			result.append(normalized)
+	return result
+
+
+def _normalize_search_payload(
+	email_addresses: Any = None,
+	tags: Any = None,
+	mode: str = "any",
+	title: str | None = None,
+) -> dict[str, Any]:
+	emails = [email.casefold() for email in _as_list(email_addresses)]
+	if len(emails) > MAX_EMAIL_ADDRESSES:
+		frappe.throw(
+			_("Es können höchstens {0} E-Mail-Adressen durchsucht werden.").format(MAX_EMAIL_ADDRESSES)
+		)
+	for email in emails:
+		validate_email_address(email, throw=True)
+	normalized_tags = _as_list(tags)
+	if len(normalized_tags) > MAX_TAGS:
+		frappe.throw(_("Es können höchstens {0} Tags durchsucht werden.").format(MAX_TAGS))
+	if any(len(tag) > 140 for tag in normalized_tags):
+		frappe.throw(_("Ein Thunderbird-Tag darf höchstens 140 Zeichen lang sein."))
+	if not emails and not normalized_tags:
+		frappe.throw(_("Mindestens eine E-Mail-Adresse oder ein Thunderbird-Tag ist erforderlich."))
+	normalized_mode = "all" if str(mode).strip().lower() == "all" else "any"
+	return {
+		"command": "show_messages",
+		"title": (str(title or "ERPNext E-Mail-Suche").strip() or "ERPNext E-Mail-Suche")[:180],
+		"match": {
+			"email_addresses": emails,
+			"tags": normalized_tags,
+			"mode": normalized_mode,
+		},
+	}
+
+
+def _normalize_recipients(value: Any) -> list[str]:
+	recipients = _as_list(value)
+	if len(recipients) > MAX_EMAIL_ADDRESSES:
+		frappe.throw(
+			_("Es können höchstens {0} Empfänger je Feld verwendet werden.").format(MAX_EMAIL_ADDRESSES)
+		)
+	for recipient in recipients:
+		validate_email_address(recipient, throw=True)
+	return recipients
+
+
+def _normalize_compose_payload(
+	to: Any = None,
+	cc: Any = None,
+	bcc: Any = None,
+	subject: str | None = None,
+	plain_text_body: str | None = None,
+) -> dict[str, Any]:
+	to_recipients = _normalize_recipients(to)
+	cc_recipients = _normalize_recipients(cc)
+	bcc_recipients = _normalize_recipients(bcc)
+	if not to_recipients and not cc_recipients and not bcc_recipients:
+		frappe.throw(_("Mindestens ein Empfänger ist erforderlich."))
+	body = str(plain_text_body or "")
+	if len(body) > MAX_COMPOSE_BODY_LENGTH:
+		frappe.throw(
+			_("Der Nachrichtentext darf höchstens {0} Zeichen lang sein.").format(MAX_COMPOSE_BODY_LENGTH)
+		)
+	return {
+		"command": "compose_message",
+		"compose": {
+			"to": to_recipients,
+			"cc": cc_recipients,
+			"bcc": bcc_recipients,
+			"subject": str(subject or "")[:998],
+			"plain_text_body": body,
+		},
+	}
+
+
+def _get_owned_device(device_id: str, user: str, *, require_enabled: bool = True):
+	if not frappe.db.exists("Thunderbird Device", device_id):
+		frappe.throw(_("Der Thunderbird-Arbeitsplatz ist nicht registriert."), frappe.DoesNotExistError)
+	device = frappe.get_doc("Thunderbird Device", device_id)
+	if device.user != user:
+		frappe.throw(
+			_("Der Thunderbird-Arbeitsplatz gehört zu einem anderen Benutzer."), frappe.PermissionError
+		)
+	if require_enabled and not device.enabled:
+		frappe.throw(_("Der Thunderbird-Arbeitsplatz wurde deaktiviert."), frappe.PermissionError)
+	return device
+
+
+@frappe.whitelist()
+def register_device(
+	device_id: str, device_name: str = "Thunderbird", extension_version: str = ""
+) -> dict[str, Any]:
+	user = _require_bridge_user()
+	device_id = _normalize_device_id(device_id)
+	device_name = (str(device_name or "Thunderbird").strip() or "Thunderbird")[:140]
+	extension_version = str(extension_version or "").strip()[:32]
+
+	if frappe.db.exists("Thunderbird Device", device_id):
+		device = _get_owned_device(device_id, user, require_enabled=False)
+		if not device.enabled:
+			frappe.throw(
+				_("Dieser Thunderbird-Arbeitsplatz wurde in ERPNext deaktiviert."), frappe.PermissionError
+			)
+		device.db_set(
+			{
+				"device_name": device_name,
+				"last_seen": now_datetime(),
+				"extension_version": extension_version,
+			},
+			update_modified=True,
+		)
+	else:
+		device = frappe.get_doc(
+			{
+				"doctype": "Thunderbird Device",
+				"device_id": device_id,
+				"device_name": device_name,
+				"user": user,
+				"enabled": 1,
+				"last_seen": now_datetime(),
+				"extension_version": extension_version,
+			}
+		).insert(ignore_permissions=True)
+
+	return {
+		"device_id": device.name,
+		"device_name": device.device_name,
+		"user": user,
+		"enabled": bool(device.enabled),
+	}
+
+
+@frappe.whitelist()
+def list_devices() -> list[dict[str, Any]]:
+	user = _require_bridge_user()
+	return frappe.get_all(
+		"Thunderbird Device",
+		filters={"user": user, "enabled": 1},
+		fields=["device_id", "device_name", "last_seen", "extension_version"],
+		order_by="last_seen desc",
+	)
+
+
+@frappe.whitelist()
+def enqueue_search(
+	email_addresses: Any = None,
+	tags: Any = None,
+	mode: str = "any",
+	title: str | None = None,
+	device_id: str | None = None,
+) -> dict[str, Any]:
+	user = _require_bridge_user()
+	payload = _normalize_search_payload(email_addresses, tags, mode, title)
+	normalized_device_id = ""
+	if device_id:
+		normalized_device_id = _normalize_device_id(device_id)
+		_get_owned_device(normalized_device_id, user)
+
+	return _enqueue_command(user, payload, normalized_device_id)
+
+
+@frappe.whitelist()
+def enqueue_compose(
+	to: Any = None,
+	cc: Any = None,
+	bcc: Any = None,
+	subject: str | None = None,
+	plain_text_body: str | None = None,
+	device_id: str | None = None,
+) -> dict[str, Any]:
+	user = _require_bridge_user()
+	payload = _normalize_compose_payload(to, cc, bcc, subject, plain_text_body)
+	normalized_device_id = ""
+	if device_id:
+		normalized_device_id = _normalize_device_id(device_id)
+		_get_owned_device(normalized_device_id, user)
+	return _enqueue_command(user, payload, normalized_device_id)
+
+
+def _enqueue_command(user: str, payload: dict[str, Any], device_id: str = "") -> dict[str, Any]:
+	command_id = str(uuid.uuid4())
+	doc = frappe.get_doc(
+		{
+			"doctype": "Thunderbird Command",
+			"command_id": command_id,
+			"status": "Queued",
+			"user": user,
+			"device_id": device_id,
+			"expires_on": add_to_date(now_datetime(), minutes=COMMAND_TTL_MINUTES),
+			"payload": json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+			"delivery_attempts": 0,
+		}
+	).insert(ignore_permissions=True)
+
+	return {
+		"command_id": doc.name,
+		"status": doc.status,
+		"device_id": doc.device_id or None,
+		"expires_on": doc.expires_on,
+	}
+
+
+def _find_next_command(user: str, device_id: str):
+	now = now_datetime()
+	common_filters = {
+		"user": user,
+		"expires_on": [">", now],
+		"delivery_attempts": ["<", MAX_DELIVERY_ATTEMPTS],
+	}
+	or_filters = [["device_id", "=", device_id], ["device_id", "in", ["", None]]]
+
+	rows = frappe.get_all(
+		"Thunderbird Command",
+		filters={**common_filters, "status": "Queued"},
+		or_filters=or_filters,
+		fields=["name"],
+		order_by="creation asc",
+		limit=1,
+	)
+	if not rows:
+		redelivery_before = add_to_date(now, seconds=-REDELIVERY_AFTER_SECONDS)
+		rows = frappe.get_all(
+			"Thunderbird Command",
+			filters={**common_filters, "status": "Delivered", "delivered_on": ["<", redelivery_before]},
+			or_filters=or_filters,
+			fields=["name"],
+			order_by="delivered_on asc",
+			limit=1,
+		)
+	return frappe.get_doc("Thunderbird Command", rows[0].name) if rows else None
+
+
+@frappe.whitelist()
+def poll_command(device_id: str) -> dict[str, Any] | None:
+	user = _require_bridge_user()
+	device_id = _normalize_device_id(device_id)
+	device = _get_owned_device(device_id, user)
+	device.db_set("last_seen", now_datetime(), update_modified=False)
+
+	command = _find_next_command(user, device_id)
+	if not command:
+		return None
+
+	# A broadcast command is claimed by the first device which receives it.
+	command.db_set(
+		{
+			"device_id": device_id,
+			"status": "Delivered",
+			"delivered_on": now_datetime(),
+			"delivery_attempts": cint(command.delivery_attempts) + 1,
+		},
+		update_modified=True,
+	)
+	payload = json.loads(command.payload)
+	payload["id"] = command.name
+	return payload
+
+
+@frappe.whitelist()
+def acknowledge_command(command_id: str, success: Any = True, result: Any = None) -> dict[str, Any]:
+	user = _require_bridge_user()
+	command_id = str(command_id or "").strip()
+	if not command_id or not frappe.db.exists("Thunderbird Command", command_id):
+		frappe.throw(_("Thunderbird-Befehl nicht gefunden."), frappe.DoesNotExistError)
+	command = frappe.get_doc("Thunderbird Command", command_id)
+	if command.user != user:
+		frappe.throw(_("Der Thunderbird-Befehl gehört zu einem anderen Benutzer."), frappe.PermissionError)
+
+	if isinstance(result, str):
+		try:
+			result = json.loads(result)
+		except ValueError:
+			result = {"message": result}
+	result_json = json.dumps(result or {}, ensure_ascii=False, separators=(",", ":"))
+	if len(result_json) > 100_000:
+		frappe.throw(_("Das Thunderbird-Ergebnis ist zu groß."))
+
+	completed = bool(cint(success)) if not isinstance(success, bool) else success
+	command.db_set(
+		{
+			"status": "Completed" if completed else "Failed",
+			"completed_on": now_datetime(),
+			"result": result_json,
+		},
+		update_modified=True,
+	)
+	return {"command_id": command.name, "status": command.status}
+
+
+def cleanup_commands() -> None:
+	cutoff = add_to_date(now_datetime(), days=-30)
+	frappe.db.delete("Thunderbird Command", {"modified": ["<", cutoff]})

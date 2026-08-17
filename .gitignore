@@ -1,0 +1,10 @@
+*.pyc
+__pycache__/
+.coverage
+.DS_Store
+.idea/
+.pytest_cache/
+.ruff_cache/
+.venv/
+node_modules/
+

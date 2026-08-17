@@ -1,0 +1,3 @@
+include README.md
+recursive-include thunderbird_hausverwaltung *.css *.csv *.html *.ico *.js *.json *.md *.png *.py *.svg *.txt
+
