@@ -7,7 +7,7 @@ from typing import Any
 
 import frappe
 from frappe import _
-from frappe.utils import add_to_date, cint, now_datetime, validate_email_address
+from frappe.utils import add_to_date, cint, getdate, now_datetime, today, validate_email_address
 
 ALLOWED_ROLES = {"Hausverwalter", "System Manager"}
 COMMAND_TTL_MINUTES = 10
@@ -129,6 +129,73 @@ def _normalize_compose_payload(
 			"subject": str(subject or "")[:998],
 			"plain_text_body": body,
 		},
+	}
+
+
+def _row_value(row: Any, fieldname: str) -> Any:
+	if isinstance(row, dict):
+		return row.get(fieldname)
+	return getattr(row, fieldname, None)
+
+
+def _is_active_contract_partner(row: Any, reference_date: Any = None) -> bool:
+	if str(_row_value(row, "rolle") or "").strip() == "Ausgezogen":
+		return False
+	moved_out = _row_value(row, "ausgezogen")
+	if not moved_out:
+		return True
+	return getdate(moved_out) > getdate(reference_date or today())
+
+
+def _preferred_contact_email(contact: Any) -> str:
+	rows = list(_row_value(contact, "email_ids") or [])
+	rows.sort(
+		key=lambda row: (
+			0 if cint(_row_value(row, "is_primary")) else 1,
+			cint(_row_value(row, "idx")) or 999_999,
+		)
+	)
+	for row in rows:
+		email = str(_row_value(row, "email_id") or "").strip()
+		if email:
+			return email
+	return str(_row_value(contact, "email_id") or "").strip()
+
+
+@frappe.whitelist()
+def get_mietvertrag_compose_context(mietvertrag: str) -> dict[str, Any]:
+	_require_bridge_user()
+	mietvertrag = str(mietvertrag or "").strip()
+	if not mietvertrag or not frappe.db.exists("Mietvertrag", mietvertrag):
+		frappe.throw(_("Mietvertrag nicht gefunden."), frappe.DoesNotExistError)
+
+	contract = frappe.get_doc("Mietvertrag", mietvertrag)
+	contract.check_permission("read")
+
+	recipients: list[str] = []
+	seen: set[str] = set()
+	for partner in contract.get("mieter") or []:
+		if not _is_active_contract_partner(partner):
+			continue
+		contact_name = str(_row_value(partner, "mieter") or "").strip()
+		if not contact_name or not frappe.db.exists("Contact", contact_name):
+			continue
+		email = _preferred_contact_email(frappe.get_doc("Contact", contact_name))
+		key = email.casefold()
+		if email and key not in seen:
+			validate_email_address(email, throw=True)
+			recipients.append(email)
+			seen.add(key)
+
+	if not recipients:
+		frappe.throw(
+			_("Für die aktiven Vertragspartner dieses Mietvertrags ist keine E-Mail-Adresse hinterlegt.")
+		)
+
+	return {
+		"mietvertrag": contract.name,
+		"to": recipients,
+		"subject": _("Mietvertrag {0}").format(contract.name),
 	}
 
 
