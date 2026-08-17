@@ -11,6 +11,10 @@ app_include_js = [
 	"/assets/thunderbird_hausverwaltung/js/thunderbird_bridge.js",
 ]
 
+doctype_js = {
+	"Mietvertrag": "public/js/mietvertrag.js",
+}
+
 scheduler_events = {
 	"hourly": [
 		"thunderbird_hausverwaltung.thunderbird_hausverwaltung.integrations.thunderbird_bridge.cleanup_commands",
