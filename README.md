@@ -16,3 +16,12 @@ bench build --app thunderbird_hausverwaltung
 
 Die App `hausverwaltung` muss auf der Site bereits installiert sein.
 
+## Mietvertrag
+
+Auf einem gespeicherten `Mietvertrag` steht unter **Thunderbird → E-Mail verfassen** ein Button
+bereit. Er übernimmt für jeden aktiven Vertragspartner die primäre E-Mail-Adresse (ersatzweise die
+erste hinterlegte Adresse), entfernt Dubletten und öffnet einen neuen Thunderbird-Entwurf. Partner
+mit der Rolle `Ausgezogen` oder einem bereits erreichten Auszugsdatum werden nicht angeschrieben.
+
+Der Entwurf wird niemals automatisch versendet. Das Thunderbird-Add-on muss mit demselben
+ERPNext-Benutzer verbunden sein, der den Button verwendet.
