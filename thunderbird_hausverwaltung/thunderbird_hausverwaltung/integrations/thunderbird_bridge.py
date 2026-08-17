@@ -17,6 +17,31 @@ MAX_EMAIL_ADDRESSES = 50
 MAX_TAGS = 50
 MAX_COMPOSE_BODY_LENGTH = 100_000
 DEVICE_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{8,128}$")
+MOZ_EXTENSION_ORIGIN_PATTERN = re.compile(
+	r"^moz-extension://[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+	re.IGNORECASE,
+)
+BRIDGE_API_PATH_PREFIXES = (
+	"/api/method/thunderbird_hausverwaltung.thunderbird_hausverwaltung.integrations.thunderbird_bridge.",
+	"/api/method/hausverwaltung.hausverwaltung.integrations.thunderbird_bridge.",
+)
+
+
+def _is_thunderbird_extension_request(origin: str, path: str) -> bool:
+	return bool(
+		MOZ_EXTENSION_ORIGIN_PATTERN.fullmatch(str(origin or ""))
+		and any(str(path or "").startswith(prefix) for prefix in BRIDGE_API_PATH_PREFIXES)
+	)
+
+
+def allow_extension_cors() -> None:
+	"""Allow only Thunderbird extension origins to call this app's bridge API."""
+	request = getattr(frappe.local, "request", None)
+	if not request:
+		return
+	origin = request.headers.get("Origin", "")
+	if _is_thunderbird_extension_request(origin, request.path):
+		frappe.local.allow_cors = origin
 
 
 def _require_bridge_user() -> str:
