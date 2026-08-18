@@ -188,6 +188,22 @@ def _preferred_contact_email(contact: Any) -> str:
 	return str(_row_value(contact, "email_id") or "").strip()
 
 
+def _all_contact_emails(contact: Any) -> list[str]:
+	rows = list(_row_value(contact, "email_ids") or [])
+	rows.sort(key=lambda row: cint(_row_value(row, "idx")) or 999_999)
+	candidates = [str(_row_value(row, "email_id") or "").strip() for row in rows]
+	candidates.append(str(_row_value(contact, "email_id") or "").strip())
+
+	emails: list[str] = []
+	seen: set[str] = set()
+	for email in candidates:
+		key = email.casefold()
+		if email and key not in seen:
+			emails.append(email)
+			seen.add(key)
+	return emails
+
+
 def _device_registration_updates(device: Any, device_name: str, extension_version: str) -> dict[str, str]:
 	updates = {}
 	if str(_row_value(device, "device_name") or "") != device_name:
@@ -231,6 +247,40 @@ def get_mietvertrag_compose_context(mietvertrag: str) -> dict[str, Any]:
 		"mietvertrag": contract.name,
 		"to": recipients,
 		"subject": _("Mietvertrag {0}").format(contract.name),
+	}
+
+
+@frappe.whitelist()
+def get_mietvertrag_search_context(mietvertrag: str) -> dict[str, Any]:
+	_require_bridge_user()
+	mietvertrag = str(mietvertrag or "").strip()
+	if not mietvertrag or not frappe.db.exists("Mietvertrag", mietvertrag):
+		frappe.throw(_("Mietvertrag nicht gefunden."), frappe.DoesNotExistError)
+
+	contract = frappe.get_doc("Mietvertrag", mietvertrag)
+	contract.check_permission("read")
+
+	email_addresses: list[str] = []
+	seen: set[str] = set()
+	for partner in contract.get("mieter") or []:
+		contact_name = str(_row_value(partner, "mieter") or "").strip()
+		if not contact_name or not frappe.db.exists("Contact", contact_name):
+			continue
+		for email in _all_contact_emails(frappe.get_doc("Contact", contact_name)):
+			key = email.casefold()
+			if key in seen:
+				continue
+			validate_email_address(email, throw=True)
+			email_addresses.append(email)
+			seen.add(key)
+
+	if not email_addresses:
+		frappe.throw(_("Für die Vertragspartner dieses Mietvertrags ist keine E-Mail-Adresse hinterlegt."))
+
+	return {
+		"mietvertrag": contract.name,
+		"email_addresses": email_addresses,
+		"title": _("E-Mails zu Mietvertrag {0}").format(contract.name),
 	}
 
 
