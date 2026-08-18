@@ -3,6 +3,9 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest import TestCase
 
+from thunderbird_hausverwaltung.thunderbird_hausverwaltung.doctype.thunderbird_command.thunderbird_command import (
+	ALLOWED_COMMANDS,
+)
 from thunderbird_hausverwaltung.thunderbird_hausverwaltung.integrations.thunderbird_bridge import (
 	REALTIME_EVENT,
 	_all_contact_emails,
@@ -11,6 +14,7 @@ from thunderbird_hausverwaltung.thunderbird_hausverwaltung.integrations.thunderb
 	_device_registration_updates,
 	_is_active_contract_partner,
 	_is_thunderbird_extension_request,
+	_message_record_name,
 	_normalize_compose_payload,
 	_normalize_search_payload,
 	_preferred_contact_email,
@@ -18,6 +22,12 @@ from thunderbird_hausverwaltung.thunderbird_hausverwaltung.integrations.thunderb
 
 
 class TestThunderbirdBridge(TestCase):
+	def test_command_validation_supports_all_bridge_commands(self) -> None:
+		self.assertEqual(
+			ALLOWED_COMMANDS,
+			{"show_messages", "compose_message", "sync_messages", "open_message"},
+		)
+
 	def test_contract_contact_names_include_historical_partners_and_deduplicate(self) -> None:
 		contracts = [
 			SimpleNamespace(
@@ -54,6 +64,11 @@ class TestThunderbirdBridge(TestCase):
 
 	def test_realtime_event_name_is_stable(self) -> None:
 		self.assertEqual(REALTIME_EVENT, "thunderbird_command_available")
+
+	def test_message_record_name_is_stable_per_reference(self) -> None:
+		first = _message_record_name("Mietvertrag", "MV-1", "<Mail@Example.de>")
+		self.assertEqual(first, _message_record_name("Mietvertrag", "MV-1", "<mail@example.de>"))
+		self.assertNotEqual(first, _message_record_name("Mietvertrag", "MV-2", "<mail@example.de>"))
 
 	def test_repeated_device_registration_does_not_write(self) -> None:
 		device = SimpleNamespace(device_name="Thunderbird", extension_version="0.2.0")

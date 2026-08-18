@@ -3,6 +3,12 @@ frappe.ui.form.on("Mietvertrag", {
 		if (frm.is_new()) return;
 
 		frm.add_custom_button(
+			__("Schriftverkehr"),
+			() => window.hv_thunderbird.open_timeline("Mietvertrag", frm.doc.name),
+			__("Thunderbird")
+		);
+
+		frm.add_custom_button(
 			__("E-Mails anzeigen"),
 			async () => {
 				if (!window.hv_thunderbird?.show_messages) {

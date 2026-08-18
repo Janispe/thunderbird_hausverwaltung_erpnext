@@ -1,13 +1,23 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 import uuid
 from typing import Any
 
 import frappe
 from frappe import _
-from frappe.utils import add_to_date, cint, getdate, now_datetime, today, validate_email_address
+from frappe.utils import (
+	add_to_date,
+	cint,
+	convert_utc_to_system_timezone,
+	get_datetime,
+	getdate,
+	now_datetime,
+	today,
+	validate_email_address,
+)
 
 ALLOWED_ROLES = {"Hausverwalter", "System Manager"}
 COMMAND_TTL_MINUTES = 10
@@ -17,6 +27,9 @@ MAX_EMAIL_ADDRESSES = 50
 MAX_TAGS = 50
 MAX_COMPOSE_BODY_LENGTH = 100_000
 REALTIME_EVENT = "thunderbird_command_available"
+TIMELINE_UPDATED_EVENT = "thunderbird_timeline_updated"
+TIMELINE_DOCTYPES = {"Mietvertrag", "Wohnung"}
+MAX_SYNC_MESSAGES = 200
 DEVICE_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{8,128}$")
 MOZ_EXTENSION_ORIGIN_PATTERN = re.compile(
 	r"^moz-extension://[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
@@ -114,6 +127,55 @@ def _normalize_search_payload(
 			"email_addresses": emails,
 			"tags": normalized_tags,
 			"mode": normalized_mode,
+		},
+	}
+
+
+def _get_timeline_context(reference_doctype: str, reference_name: str) -> dict[str, Any]:
+	reference_doctype = str(reference_doctype or "").strip()
+	reference_name = str(reference_name or "").strip()
+	if reference_doctype not in TIMELINE_DOCTYPES:
+		frappe.throw(_("Schriftverkehr wird nur für Mietverträge und Wohnungen unterstützt."))
+	if not reference_name or not frappe.db.exists(reference_doctype, reference_name):
+		frappe.throw(_("Das Bezugsdokument wurde nicht gefunden."), frappe.DoesNotExistError)
+
+	reference = frappe.get_doc(reference_doctype, reference_name)
+	reference.check_permission("read")
+	if reference_doctype == "Mietvertrag":
+		email_addresses = _email_addresses_for_contracts([reference])
+	else:
+		contract_names = frappe.get_list(
+			"Mietvertrag",
+			filters={"wohnung": reference.name},
+			pluck="name",
+			order_by="creation asc",
+		)
+		contracts = [frappe.get_doc("Mietvertrag", name) for name in contract_names]
+		for contract in contracts:
+			contract.check_permission("read")
+		email_addresses = _email_addresses_for_contracts(contracts)
+	if not email_addresses:
+		frappe.throw(_("Für dieses Dokument ist keine Vertragspartner-E-Mail-Adresse hinterlegt."))
+	return {
+		"reference_doctype": reference_doctype,
+		"reference_name": reference.name,
+		"email_addresses": email_addresses,
+	}
+
+
+def _normalize_timeline_sync_payload(reference_doctype: str, reference_name: str) -> dict[str, Any]:
+	context = _get_timeline_context(reference_doctype, reference_name)
+	return {
+		"command": "sync_messages",
+		"title": _("Schriftverkehr zu {0} {1}").format(reference_doctype, reference_name),
+		"match": {
+			"email_addresses": context["email_addresses"],
+			"tags": [],
+			"mode": "any",
+		},
+		"reference": {
+			"doctype": context["reference_doctype"],
+			"name": context["reference_name"],
 		},
 	}
 
@@ -438,6 +500,169 @@ def enqueue_compose(
 	return _enqueue_command(user, payload, normalized_device_id)
 
 
+@frappe.whitelist()
+def enqueue_timeline_sync(
+	reference_doctype: str,
+	reference_name: str,
+	device_id: str | None = None,
+) -> dict[str, Any]:
+	user = _require_bridge_user()
+	payload = _normalize_timeline_sync_payload(reference_doctype, reference_name)
+	normalized_device_id = ""
+	if device_id:
+		normalized_device_id = _normalize_device_id(device_id)
+		_get_owned_device(normalized_device_id, user)
+	return _enqueue_command(user, payload, normalized_device_id)
+
+
+def _timeline_command(command_id: str, user: str):
+	command_id = str(command_id or "").strip()
+	if not command_id or not frappe.db.exists("Thunderbird Command", command_id):
+		frappe.throw(_("Thunderbird-Befehl nicht gefunden."), frappe.DoesNotExistError)
+	command = frappe.get_doc("Thunderbird Command", command_id)
+	if command.user != user:
+		frappe.throw(_("Der Thunderbird-Befehl gehört zu einem anderen Benutzer."), frappe.PermissionError)
+	payload = json.loads(command.payload)
+	if command.status != "Delivered" or payload.get("command") != "sync_messages":
+		frappe.throw(_("Der Befehl ist kein aktiver Schriftverkehr-Abgleich."), frappe.PermissionError)
+	reference = payload.get("reference") or {}
+	context = _get_timeline_context(reference.get("doctype"), reference.get("name"))
+	return command, context
+
+
+def _message_record_name(reference_doctype: str, reference_name: str, header_message_id: str) -> str:
+	key = "\x00".join((reference_doctype, reference_name, header_message_id.casefold()))
+	return f"TBM-{hashlib.sha256(key.encode('utf-8')).hexdigest()[:32]}"
+
+
+def _sync_message_values(
+	message: dict[str, Any], context: dict[str, Any], command: Any
+) -> dict[str, Any] | None:
+	header_message_id = str(message.get("header_message_id") or "").strip()[:998]
+	if not header_message_id:
+		return None
+	message_date = message.get("date")
+	try:
+		message_date = get_datetime(message_date) if message_date else None
+		if message_date and message_date.tzinfo:
+			message_date = convert_utc_to_system_timezone(message_date).replace(tzinfo=None)
+	except (TypeError, ValueError):
+		message_date = None
+	direction = str(message.get("direction") or "Unbekannt").strip()
+	if direction not in {"Eingang", "Ausgang", "Unbekannt"}:
+		direction = "Unbekannt"
+	return {
+		"reference_doctype": context["reference_doctype"],
+		"reference_name": context["reference_name"],
+		"header_message_id": header_message_id,
+		"subject": (str(message.get("subject") or "(ohne Betreff)").strip() or "(ohne Betreff)")[:998],
+		"sender": str(message.get("author") or "").strip()[:2000],
+		"recipients": json.dumps(message.get("recipients") or [], ensure_ascii=False)[:10000],
+		"cc": json.dumps(message.get("cc") or [], ensure_ascii=False)[:10000],
+		"message_date": message_date,
+		"direction": direction,
+		"folder_path": str(message.get("folder_path") or "").strip()[:1000],
+		"account_id": str(message.get("account_id") or "").strip()[:140],
+		"device_id": command.device_id,
+		"last_synced": now_datetime(),
+	}
+
+
+@frappe.whitelist()
+def sync_timeline_messages(command_id: str, messages: Any = None) -> dict[str, Any]:
+	user = _require_bridge_user()
+	command, context = _timeline_command(command_id, user)
+	if isinstance(messages, str):
+		try:
+			messages = json.loads(messages)
+		except ValueError:
+			frappe.throw(_("Ungültige Nachrichtendaten."))
+	if not isinstance(messages, list) or len(messages) > MAX_SYNC_MESSAGES:
+		frappe.throw(
+			_("Pro Abgleich können höchstens {0} Nachrichten übertragen werden.").format(MAX_SYNC_MESSAGES)
+		)
+
+	stored = 0
+	skipped = 0
+	for message in messages:
+		if not isinstance(message, dict):
+			skipped += 1
+			continue
+		values = _sync_message_values(message, context, command)
+		if not values:
+			skipped += 1
+			continue
+		name = _message_record_name(
+			context["reference_doctype"], context["reference_name"], values["header_message_id"]
+		)
+		if frappe.db.exists("Thunderbird Message", name):
+			frappe.db.set_value("Thunderbird Message", name, values, update_modified=True)
+		else:
+			frappe.get_doc({"doctype": "Thunderbird Message", "name": name, **values}).insert(
+				ignore_permissions=True
+			)
+		stored += 1
+
+	frappe.publish_realtime(
+		TIMELINE_UPDATED_EVENT,
+		message={
+			"reference_doctype": context["reference_doctype"],
+			"reference_name": context["reference_name"],
+			"stored": stored,
+		},
+		user=user,
+		after_commit=True,
+	)
+	return {"stored": stored, "skipped": skipped}
+
+
+@frappe.whitelist()
+def get_timeline(reference_doctype: str, reference_name: str, limit: int = 500) -> list[dict[str, Any]]:
+	_require_bridge_user()
+	context = _get_timeline_context(reference_doctype, reference_name)
+	return frappe.get_all(
+		"Thunderbird Message",
+		filters={
+			"reference_doctype": context["reference_doctype"],
+			"reference_name": context["reference_name"],
+		},
+		fields=[
+			"name",
+			"header_message_id",
+			"subject",
+			"sender",
+			"recipients",
+			"cc",
+			"message_date",
+			"direction",
+			"folder_path",
+			"last_synced",
+		],
+		order_by="message_date desc, creation desc",
+		limit_page_length=min(max(cint(limit), 1), 1000),
+	)
+
+
+@frappe.whitelist()
+def enqueue_open_timeline_message(message_name: str, device_id: str | None = None) -> dict[str, Any]:
+	user = _require_bridge_user()
+	message_name = str(message_name or "").strip()
+	if not message_name or not frappe.db.exists("Thunderbird Message", message_name):
+		frappe.throw(_("E-Mail wurde nicht gefunden."), frappe.DoesNotExistError)
+	message = frappe.get_doc("Thunderbird Message", message_name)
+	_get_timeline_context(message.reference_doctype, message.reference_name)
+	payload = {
+		"command": "open_message",
+		"header_message_id": message.header_message_id,
+		"title": message.subject,
+	}
+	normalized_device_id = ""
+	if device_id:
+		normalized_device_id = _normalize_device_id(device_id)
+		_get_owned_device(normalized_device_id, user)
+	return _enqueue_command(user, payload, normalized_device_id)
+
+
 def _enqueue_command(user: str, payload: dict[str, Any], device_id: str = "") -> dict[str, Any]:
 	command_id = str(uuid.uuid4())
 	doc = frappe.get_doc(
@@ -554,6 +779,19 @@ def acknowledge_command(command_id: str, success: Any = True, result: Any = None
 		},
 		update_modified=True,
 	)
+	payload = json.loads(command.payload)
+	if payload.get("command") == "sync_messages":
+		reference = payload.get("reference") or {}
+		frappe.publish_realtime(
+			TIMELINE_UPDATED_EVENT,
+			message={
+				"reference_doctype": reference.get("doctype"),
+				"reference_name": reference.get("name"),
+				"completed": completed,
+			},
+			user=user,
+			after_commit=True,
+		)
 	return {"command_id": command.name, "status": command.status}
 
 

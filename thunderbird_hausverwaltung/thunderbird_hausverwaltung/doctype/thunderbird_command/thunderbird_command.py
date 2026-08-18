@@ -5,6 +5,8 @@ import json
 import frappe
 from frappe.model.document import Document
 
+ALLOWED_COMMANDS = {"show_messages", "compose_message", "sync_messages", "open_message"}
+
 
 class ThunderbirdCommand(Document):
 	def validate(self) -> None:
@@ -14,5 +16,5 @@ class ThunderbirdCommand(Document):
 			payload = json.loads(self.payload or "{}")
 		except (TypeError, ValueError):
 			frappe.throw("Der Thunderbird-Befehl enthält kein gültiges JSON.")
-		if payload.get("command") not in {"show_messages", "compose_message"}:
+		if payload.get("command") not in ALLOWED_COMMANDS:
 			frappe.throw("Nicht unterstützter Thunderbird-Befehl.")

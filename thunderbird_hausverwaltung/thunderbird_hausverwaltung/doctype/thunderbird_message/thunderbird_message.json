@@ -1,0 +1,152 @@
+{
+ "actions": [],
+ "autoname": "Prompt",
+ "creation": "2026-08-18 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "reference_section",
+  "reference_doctype",
+  "reference_name",
+  "header_message_id",
+  "message_section",
+  "subject",
+  "message_date",
+  "direction",
+  "sender",
+  "recipients",
+  "cc",
+  "location_section",
+  "folder_path",
+  "account_id",
+  "device_id",
+  "last_synced"
+ ],
+ "fields": [
+  {
+   "fieldname": "reference_section",
+   "fieldtype": "Section Break",
+   "label": "Zuordnung"
+  },
+  {
+   "fieldname": "reference_doctype",
+   "fieldtype": "Link",
+   "label": "Dokumenttyp",
+   "options": "DocType",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "reference_name",
+   "fieldtype": "Dynamic Link",
+   "label": "Dokument",
+   "options": "reference_doctype",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "header_message_id",
+   "fieldtype": "Data",
+   "label": "RFC Message-ID",
+   "length": 998,
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "message_section",
+   "fieldtype": "Section Break",
+   "label": "Nachricht"
+  },
+  {
+   "fieldname": "subject",
+   "fieldtype": "Data",
+   "label": "Betreff",
+   "length": 998,
+   "read_only": 1
+  },
+  {
+   "fieldname": "message_date",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Datum",
+   "read_only": 1
+  },
+  {
+   "fieldname": "direction",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Richtung",
+   "options": "Eingang\nAusgang\nUnbekannt",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sender",
+   "fieldtype": "Small Text",
+   "label": "Absender",
+   "read_only": 1
+  },
+  {
+   "fieldname": "recipients",
+   "fieldtype": "Long Text",
+   "label": "Empfänger (JSON)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cc",
+   "fieldtype": "Long Text",
+   "label": "CC (JSON)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "location_section",
+   "fieldtype": "Section Break",
+   "label": "Thunderbird"
+  },
+  {
+   "fieldname": "folder_path",
+   "fieldtype": "Small Text",
+   "label": "Ordner",
+   "read_only": 1
+  },
+  {
+   "fieldname": "account_id",
+   "fieldtype": "Data",
+   "label": "Konto-ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "device_id",
+   "fieldtype": "Link",
+   "label": "Arbeitsplatz",
+   "options": "Thunderbird Device",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_synced",
+   "fieldtype": "Datetime",
+   "label": "Zuletzt abgeglichen",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-18 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Thunderbird Hausverwaltung",
+ "name": "Thunderbird Message",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "write": 1
+  }
+ ],
+ "sort_field": "message_date",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

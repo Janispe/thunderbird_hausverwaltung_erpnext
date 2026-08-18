@@ -11,6 +11,10 @@ app_include_js = [
 	"/assets/thunderbird_hausverwaltung/js/thunderbird_bridge.js",
 ]
 
+app_include_css = [
+	"/assets/thunderbird_hausverwaltung/css/thunderbird_timeline.css",
+]
+
 doctype_js = {
 	"Mietvertrag": "public/js/mietvertrag.js",
 	"Wohnung": "public/js/wohnung.js",
