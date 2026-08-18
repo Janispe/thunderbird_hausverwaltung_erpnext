@@ -204,6 +204,34 @@ def _all_contact_emails(contact: Any) -> list[str]:
 	return emails
 
 
+def _contract_contact_names(contracts: list[Any]) -> list[str]:
+	contact_names: list[str] = []
+	seen: set[str] = set()
+	for contract in contracts:
+		for partner in _row_value(contract, "mieter") or []:
+			contact_name = str(_row_value(partner, "mieter") or "").strip()
+			if contact_name and contact_name not in seen:
+				contact_names.append(contact_name)
+				seen.add(contact_name)
+	return contact_names
+
+
+def _email_addresses_for_contracts(contracts: list[Any]) -> list[str]:
+	email_addresses: list[str] = []
+	seen: set[str] = set()
+	for contact_name in _contract_contact_names(contracts):
+		if not frappe.db.exists("Contact", contact_name):
+			continue
+		for email in _all_contact_emails(frappe.get_doc("Contact", contact_name)):
+			key = email.casefold()
+			if key in seen:
+				continue
+			validate_email_address(email, throw=True)
+			email_addresses.append(email)
+			seen.add(key)
+	return email_addresses
+
+
 def _device_registration_updates(device: Any, device_name: str, extension_version: str) -> dict[str, str]:
 	updates = {}
 	if str(_row_value(device, "device_name") or "") != device_name:
@@ -260,19 +288,7 @@ def get_mietvertrag_search_context(mietvertrag: str) -> dict[str, Any]:
 	contract = frappe.get_doc("Mietvertrag", mietvertrag)
 	contract.check_permission("read")
 
-	email_addresses: list[str] = []
-	seen: set[str] = set()
-	for partner in contract.get("mieter") or []:
-		contact_name = str(_row_value(partner, "mieter") or "").strip()
-		if not contact_name or not frappe.db.exists("Contact", contact_name):
-			continue
-		for email in _all_contact_emails(frappe.get_doc("Contact", contact_name)):
-			key = email.casefold()
-			if key in seen:
-				continue
-			validate_email_address(email, throw=True)
-			email_addresses.append(email)
-			seen.add(key)
+	email_addresses = _email_addresses_for_contracts([contract])
 
 	if not email_addresses:
 		frappe.throw(_("Für die Vertragspartner dieses Mietvertrags ist keine E-Mail-Adresse hinterlegt."))
@@ -281,6 +297,42 @@ def get_mietvertrag_search_context(mietvertrag: str) -> dict[str, Any]:
 		"mietvertrag": contract.name,
 		"email_addresses": email_addresses,
 		"title": _("E-Mails zu Mietvertrag {0}").format(contract.name),
+	}
+
+
+@frappe.whitelist()
+def get_wohnung_search_context(wohnung: str) -> dict[str, Any]:
+	_require_bridge_user()
+	wohnung = str(wohnung or "").strip()
+	if not wohnung or not frappe.db.exists("Wohnung", wohnung):
+		frappe.throw(_("Wohnung nicht gefunden."), frappe.DoesNotExistError)
+
+	unit = frappe.get_doc("Wohnung", wohnung)
+	unit.check_permission("read")
+
+	contract_names = frappe.get_list(
+		"Mietvertrag",
+		filters={"wohnung": unit.name},
+		pluck="name",
+		order_by="creation asc",
+	)
+	contracts = []
+	for contract_name in contract_names:
+		contract = frappe.get_doc("Mietvertrag", contract_name)
+		contract.check_permission("read")
+		contracts.append(contract)
+
+	email_addresses = _email_addresses_for_contracts(contracts)
+	if not email_addresses:
+		frappe.throw(
+			_("Für die Mietverträge dieser Wohnung ist keine Vertragspartner-E-Mail-Adresse hinterlegt.")
+		)
+
+	return {
+		"wohnung": unit.name,
+		"mietvertraege": contract_names,
+		"email_addresses": email_addresses,
+		"title": _("E-Mails zu Wohnung {0}").format(unit.name),
 	}
 
 
