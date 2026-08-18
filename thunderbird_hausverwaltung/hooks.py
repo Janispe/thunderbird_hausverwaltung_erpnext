@@ -13,6 +13,7 @@ app_include_js = [
 
 doctype_js = {
 	"Mietvertrag": "public/js/mietvertrag.js",
+	"Wohnung": "public/js/wohnung.js",
 }
 
 before_request = [
