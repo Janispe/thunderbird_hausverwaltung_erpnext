@@ -4,7 +4,9 @@ from types import SimpleNamespace
 from unittest import TestCase
 
 from thunderbird_hausverwaltung.thunderbird_hausverwaltung.integrations.thunderbird_bridge import (
+	REALTIME_EVENT,
 	_as_list,
+	_device_registration_updates,
 	_is_active_contract_partner,
 	_is_thunderbird_extension_request,
 	_normalize_compose_payload,
@@ -14,6 +16,17 @@ from thunderbird_hausverwaltung.thunderbird_hausverwaltung.integrations.thunderb
 
 
 class TestThunderbirdBridge(TestCase):
+	def test_realtime_event_name_is_stable(self) -> None:
+		self.assertEqual(REALTIME_EVENT, "thunderbird_command_available")
+
+	def test_repeated_device_registration_does_not_write(self) -> None:
+		device = SimpleNamespace(device_name="Thunderbird", extension_version="0.2.0")
+		self.assertEqual(_device_registration_updates(device, "Thunderbird", "0.2.0"), {})
+		self.assertEqual(
+			_device_registration_updates(device, "Büro", "0.2.1"),
+			{"device_name": "Büro", "extension_version": "0.2.1"},
+		)
+
 	def test_cors_is_limited_to_thunderbird_bridge_requests(self) -> None:
 		origin = "moz-extension://2ba4abe6-0a3e-4e49-94bc-67afb971af41"
 		self.assertTrue(
