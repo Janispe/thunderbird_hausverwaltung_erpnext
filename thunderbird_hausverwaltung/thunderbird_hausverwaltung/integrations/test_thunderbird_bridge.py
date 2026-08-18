@@ -5,6 +5,7 @@ from unittest import TestCase
 
 from thunderbird_hausverwaltung.thunderbird_hausverwaltung.integrations.thunderbird_bridge import (
 	REALTIME_EVENT,
+	_all_contact_emails,
 	_as_list,
 	_device_registration_updates,
 	_is_active_contract_partner,
@@ -16,6 +17,20 @@ from thunderbird_hausverwaltung.thunderbird_hausverwaltung.integrations.thunderb
 
 
 class TestThunderbirdBridge(TestCase):
+	def test_all_contact_emails_includes_every_address_and_deduplicates(self) -> None:
+		contact = SimpleNamespace(
+			email_id="PRIMARY@example.de",
+			email_ids=[
+				SimpleNamespace(email_id="second@example.de", idx=2),
+				SimpleNamespace(email_id="primary@example.de", idx=1),
+				SimpleNamespace(email_id="", idx=3),
+			],
+		)
+		self.assertEqual(
+			_all_contact_emails(contact),
+			["primary@example.de", "second@example.de"],
+		)
+
 	def test_realtime_event_name_is_stable(self) -> None:
 		self.assertEqual(REALTIME_EVENT, "thunderbird_command_available")
 
