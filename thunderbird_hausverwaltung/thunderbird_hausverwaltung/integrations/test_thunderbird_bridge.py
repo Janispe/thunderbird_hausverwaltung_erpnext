@@ -7,6 +7,7 @@ from thunderbird_hausverwaltung.thunderbird_hausverwaltung.integrations.thunderb
 	REALTIME_EVENT,
 	_all_contact_emails,
 	_as_list,
+	_contract_contact_names,
 	_device_registration_updates,
 	_is_active_contract_partner,
 	_is_thunderbird_extension_request,
@@ -17,6 +18,26 @@ from thunderbird_hausverwaltung.thunderbird_hausverwaltung.integrations.thunderb
 
 
 class TestThunderbirdBridge(TestCase):
+	def test_contract_contact_names_include_historical_partners_and_deduplicate(self) -> None:
+		contracts = [
+			SimpleNamespace(
+				mieter=[
+					SimpleNamespace(mieter="CONTACT-OLD", rolle="Ausgezogen"),
+					SimpleNamespace(mieter="CONTACT-SHARED", rolle="Partner"),
+				]
+			),
+			SimpleNamespace(
+				mieter=[
+					SimpleNamespace(mieter="CONTACT-SHARED", rolle="Hauptmieter"),
+					SimpleNamespace(mieter="CONTACT-NEW", rolle="Hauptmieter"),
+				]
+			),
+		]
+		self.assertEqual(
+			_contract_contact_names(contracts),
+			["CONTACT-OLD", "CONTACT-SHARED", "CONTACT-NEW"],
+		)
+
 	def test_all_contact_emails_includes_every_address_and_deduplicates(self) -> None:
 		contact = SimpleNamespace(
 			email_id="PRIMARY@example.de",
