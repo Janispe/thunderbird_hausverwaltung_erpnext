@@ -341,6 +341,49 @@ def get_mietvertrag_compose_context(mietvertrag: str) -> dict[str, Any]:
 
 
 @frappe.whitelist()
+def get_mietvertrag_contact_compose_context(mietvertrag: str, contact: str) -> dict[str, Any]:
+	_require_bridge_user()
+	mietvertrag = str(mietvertrag or "").strip()
+	contact = str(contact or "").strip()
+	if not mietvertrag or not frappe.db.exists("Mietvertrag", mietvertrag):
+		frappe.throw(_("Mietvertrag nicht gefunden."), frappe.DoesNotExistError)
+	if not contact or not frappe.db.exists("Contact", contact):
+		frappe.throw(_("Mieter-Kontakt nicht gefunden."), frappe.DoesNotExistError)
+
+	contract = frappe.get_doc("Mietvertrag", mietvertrag)
+	contract.check_permission("read")
+	partner = next(
+		(
+			row
+			for row in contract.get("mieter") or []
+			if str(_row_value(row, "mieter") or "").strip() == contact
+			and _is_active_contract_partner(row)
+			and (
+				not _row_value(row, "eingezogen")
+				or getdate(_row_value(row, "eingezogen")) <= getdate(today())
+			)
+		),
+		None,
+	)
+	if not partner:
+		frappe.throw(
+			_("Der Kontakt ist kein aktiver Vertragspartner dieses Mietvertrags."),
+			frappe.PermissionError,
+		)
+
+	email = _preferred_contact_email(frappe.get_doc("Contact", contact))
+	if not email:
+		frappe.throw(_("Für diesen Mieter ist keine E-Mail-Adresse hinterlegt."))
+	validate_email_address(email, throw=True)
+	return {
+		"mietvertrag": contract.name,
+		"contact": contact,
+		"to": [email],
+		"subject": _("Mietvertrag {0}").format(contract.name),
+	}
+
+
+@frappe.whitelist()
 def get_mietvertrag_search_context(mietvertrag: str) -> dict[str, Any]:
 	_require_bridge_user()
 	mietvertrag = str(mietvertrag or "").strip()

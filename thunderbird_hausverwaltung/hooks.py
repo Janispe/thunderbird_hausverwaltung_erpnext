@@ -20,6 +20,10 @@ doctype_js = {
 	"Wohnung": "public/js/wohnung.js",
 }
 
+page_js = {
+	"immobilienbaumansich": "public/js/immobilienbaumansich.js",
+}
+
 before_request = [
 	"thunderbird_hausverwaltung.thunderbird_hausverwaltung.integrations.thunderbird_bridge.allow_extension_cors",
 ]
