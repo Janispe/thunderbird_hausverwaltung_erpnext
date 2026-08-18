@@ -38,6 +38,14 @@ E-Mail-Adresse eines aktuellen oder historischen Vertragspartners als Absender o
 vorkommt. Dabei werden alle am jeweiligen `Contact` hinterlegten E-Mail-Adressen berücksichtigt
 und Dubletten entfernt.
 
+## Wohnung
+
+Auf einer gespeicherten `Wohnung` steht ebenfalls **Thunderbird → E-Mails anzeigen** zur
+Verfügung. Die Suche ermittelt zuerst alle Mietverträge, die genau dieser Wohnung zugeordnet sind,
+und berücksichtigt anschließend sämtliche aktuellen und historischen Vertragspartner sowie alle
+E-Mail-Adressen ihrer `Contact`-Datensätze. Dadurch bleiben frühere Mietverhältnisse durchsuchbar,
+ohne einen `Customer` über mehrere Mietverträge hinweg wiederzuverwenden.
+
 Die App erlaubt CORS-Anfragen nur von `moz-extension://`-Ursprüngen und nur für ihre
 Thunderbird-API. Bereits installierte Add-on-Versionen können über die früheren API-Pfade der
 App `hausverwaltung` weiterarbeiten; diese werden auf die ausgelagerten Endpunkte umgeleitet.
