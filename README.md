@@ -4,7 +4,9 @@ Optionale Thunderbird-Bridge für die Frappe-App `hausverwaltung`.
 
 Die App stellt eine benutzergebundene Befehlswarteschlange bereit, über die
 ERPNext Nachrichten in Thunderbird suchen und neue Nachrichtenentwürfe öffnen
-kann. Die Ausführung erfolgt durch ein separat installiertes Thunderbird-Add-on.
+kann. Frappe Socket.IO signalisiert neue Aufträge in Echtzeit; die Datenbank-
+warteschlange sorgt dafür, dass während einer Unterbrechung nichts verloren geht.
+Die Ausführung erfolgt durch ein separat installiertes Thunderbird-Add-on.
 
 ## Installation
 
@@ -15,6 +17,11 @@ bench build --app thunderbird_hausverwaltung
 ```
 
 Die App `hausverwaltung` muss auf der Site bereits installiert sein.
+
+Für WebExtensions muss der Reverse Proxy `/socket.io` so weiterleiten, dass Frappe bei der
+API-Token-authentifizierten Verbindung dieselbe `Host`- und `Origin`-Adresse sieht. Das
+Frappe-Docker-Beispiel dieser Installation setzt dafür im Socket.IO-Location-Block beide Header
+auf die interne Frontend-Adresse. Ohne diese Einstellung meldet Frappe `Invalid origin`.
 
 ## Mietvertrag
 
@@ -29,3 +36,7 @@ ERPNext-Benutzer verbunden sein, der den Button verwendet.
 Die App erlaubt CORS-Anfragen nur von `moz-extension://`-Ursprüngen und nur für ihre
 Thunderbird-API. Bereits installierte Add-on-Versionen können über die früheren API-Pfade der
 App `hausverwaltung` weiterarbeiten; diese werden auf die ausgelagerten Endpunkte umgeleitet.
+
+Beim Einreihen eines Auftrags sendet die App das benutzerbezogene Realtime-Ereignis
+`thunderbird_command_available`. Das Ereignis enthält keine E-Mail-Daten, sondern weckt nur das
+Add-on. Dieses holt und quittiert den dauerhaft gespeicherten Auftrag anschließend über die API.
