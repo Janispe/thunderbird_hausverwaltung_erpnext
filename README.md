@@ -33,6 +33,11 @@ mit der Rolle `Ausgezogen` oder einem bereits erreichten Auszugsdatum werden nic
 Der Entwurf wird niemals automatisch versendet. Das Thunderbird-Add-on muss mit demselben
 ERPNext-Benutzer verbunden sein, der den Button verwendet.
 
+Über **Thunderbird → E-Mails anzeigen** werden Nachrichten gesucht, bei denen eine beliebige
+E-Mail-Adresse eines aktuellen oder historischen Vertragspartners als Absender oder Empfänger
+vorkommt. Dabei werden alle am jeweiligen `Contact` hinterlegten E-Mail-Adressen berücksichtigt
+und Dubletten entfernt.
+
 Die App erlaubt CORS-Anfragen nur von `moz-extension://`-Ursprüngen und nur für ihre
 Thunderbird-API. Bereits installierte Add-on-Versionen können über die früheren API-Pfade der
 App `hausverwaltung` weiterarbeiten; diese werden auf die ausgelagerten Endpunkte umgeleitet.
