@@ -16,6 +16,7 @@ MAX_DELIVERY_ATTEMPTS = 5
 MAX_EMAIL_ADDRESSES = 50
 MAX_TAGS = 50
 MAX_COMPOSE_BODY_LENGTH = 100_000
+REALTIME_EVENT = "thunderbird_command_available"
 DEVICE_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{8,128}$")
 MOZ_EXTENSION_ORIGIN_PATTERN = re.compile(
 	r"^moz-extension://[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
@@ -187,6 +188,15 @@ def _preferred_contact_email(contact: Any) -> str:
 	return str(_row_value(contact, "email_id") or "").strip()
 
 
+def _device_registration_updates(device: Any, device_name: str, extension_version: str) -> dict[str, str]:
+	updates = {}
+	if str(_row_value(device, "device_name") or "") != device_name:
+		updates["device_name"] = device_name
+	if str(_row_value(device, "extension_version") or "") != extension_version:
+		updates["extension_version"] = extension_version
+	return updates
+
+
 @frappe.whitelist()
 def get_mietvertrag_compose_context(mietvertrag: str) -> dict[str, Any]:
 	_require_bridge_user()
@@ -252,14 +262,10 @@ def register_device(
 			frappe.throw(
 				_("Dieser Thunderbird-Arbeitsplatz wurde in ERPNext deaktiviert."), frappe.PermissionError
 			)
-		device.db_set(
-			{
-				"device_name": device_name,
-				"last_seen": now_datetime(),
-				"extension_version": extension_version,
-			},
-			update_modified=True,
-		)
+		# Registration and the initial catch-up sync can overlap while the options page is open.
+		# Avoid a competing write; poll_command updates last_seen during that sync.
+		if updates := _device_registration_updates(device, device_name, extension_version):
+			device.db_set(updates, update_modified=True)
 	else:
 		device = frappe.get_doc(
 			{
@@ -278,6 +284,8 @@ def register_device(
 		"device_name": device.device_name,
 		"user": user,
 		"enabled": bool(device.enabled),
+		"site": frappe.local.site,
+		"realtime_event": REALTIME_EVENT,
 	}
 
 
@@ -342,6 +350,15 @@ def _enqueue_command(user: str, payload: dict[str, Any], device_id: str = "") ->
 			"delivery_attempts": 0,
 		}
 	).insert(ignore_permissions=True)
+
+	# The database row is the durable queue. Realtime only wakes connected clients so they can
+	# claim the row immediately; reconnecting clients perform one catch-up request.
+	frappe.publish_realtime(
+		REALTIME_EVENT,
+		message={"device_id": doc.device_id or None},
+		user=user,
+		after_commit=True,
+	)
 
 	return {
 		"command_id": doc.name,
