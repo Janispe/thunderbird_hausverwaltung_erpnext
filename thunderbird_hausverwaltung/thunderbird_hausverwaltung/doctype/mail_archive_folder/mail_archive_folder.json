@@ -1,0 +1,49 @@
+{
+ "actions": [],
+ "autoname": "Prompt",
+ "creation": "2026-08-24 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "folder_section", "archive_account", "provider_mailbox_id", "folder_name", "folder_path",
+  "column_break_folder", "parent_mailbox_id", "role", "selectable_target", "last_synced",
+  "reference_section", "reference_doctype", "reference_name",
+  "embedding_section", "sample_count", "embedding_dimension", "embedding_model", "centroid_sum", "centroid_embedding"
+ ],
+ "fields": [
+  {"fieldname":"folder_section","fieldtype":"Section Break","label":"Archivordner"},
+  {"fieldname":"archive_account","fieldtype":"Link","label":"Mail-Archiv-Konto","options":"Mail Archive Account","reqd":1,"read_only":1,"in_list_view":1,"search_index":1},
+  {"fieldname":"provider_mailbox_id","fieldtype":"Data","label":"Provider Mailbox-ID","reqd":1,"read_only":1,"search_index":1},
+  {"fieldname":"folder_name","fieldtype":"Data","label":"Ordnername","reqd":1,"read_only":1},
+  {"fieldname":"folder_path","fieldtype":"Small Text","label":"Ordnerpfad","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"column_break_folder","fieldtype":"Column Break"},
+  {"fieldname":"parent_mailbox_id","fieldtype":"Data","label":"Übergeordnete Mailbox-ID","read_only":1},
+  {"fieldname":"role","fieldtype":"Data","label":"JMAP-Rolle","read_only":1},
+  {"default":"0","description":"Nur aktivierte Ordner werden als Ablageziel angeboten.","fieldname":"selectable_target","fieldtype":"Check","label":"Als Ablageziel verwenden","in_list_view":1},
+  {"fieldname":"last_synced","fieldtype":"Datetime","label":"Zuletzt synchronisiert","read_only":1},
+  {"fieldname":"reference_section","fieldtype":"Section Break","label":"Fachlicher Bezug"},
+  {"description":"Optionaler stabiler ERPNext-Bezug des Archivordners.","fieldname":"reference_doctype","fieldtype":"Link","label":"Dokumenttyp","options":"DocType"},
+  {"fieldname":"reference_name","fieldtype":"Dynamic Link","label":"Dokument","options":"reference_doctype"},
+  {"fieldname":"embedding_section","fieldtype":"Section Break","label":"Ordner-Profil","collapsible":1},
+  {"default":"0","fieldname":"sample_count","fieldtype":"Int","label":"Indexierte Nachrichten","read_only":1},
+  {"default":"0","fieldname":"embedding_dimension","fieldtype":"Int","label":"Dimension","read_only":1},
+  {"fieldname":"embedding_model","fieldtype":"Data","label":"Embedding-Modell","read_only":1},
+  {"fieldname":"centroid_sum","fieldtype":"Long Text","label":"Vektorsumme","hidden":1,"read_only":1},
+  {"fieldname":"centroid_embedding","fieldtype":"Long Text","label":"Zentroid","hidden":1,"read_only":1}
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-24 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Thunderbird Hausverwaltung",
+ "name": "Mail Archive Folder",
+ "owner": "Administrator",
+ "permissions": [
+  {"create":1,"delete":1,"read":1,"report":1,"role":"System Manager","write":1},
+  {"read":1,"report":1,"role":"Hausverwalter","write":1}
+ ],
+ "sort_field": "folder_path",
+ "sort_order": "ASC",
+ "states": [],
+ "track_changes": 1
+}

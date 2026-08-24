@@ -441,6 +441,32 @@ def get_wohnung_search_context(wohnung: str) -> dict[str, Any]:
 	}
 
 
+@frappe.whitelist()
+def get_filing_suggestions(
+	header_message_id: str, account_addresses: Any = None, limit: int = 3
+) -> dict[str, Any]:
+	_require_bridge_user()
+	from ..mail_archive.filing import get_filing_suggestions as get_suggestions
+
+	return get_suggestions(header_message_id, account_addresses, limit)
+
+
+@frappe.whitelist()
+def confirm_filing(suggestion_id: str, folder: str) -> dict[str, Any]:
+	_require_bridge_user()
+	from ..mail_archive.filing import confirm_filing as confirm
+
+	return confirm(suggestion_id, folder)
+
+
+@frappe.whitelist()
+def dismiss_filing(suggestion_id: str) -> dict[str, str]:
+	_require_bridge_user()
+	from ..mail_archive.filing import dismiss_filing as dismiss
+
+	return dismiss(suggestion_id)
+
+
 def _get_owned_device(device_id: str, user: str, *, require_enabled: bool = True):
 	if not frappe.db.exists("Thunderbird Device", device_id):
 		frappe.throw(_("Der Thunderbird-Arbeitsplatz ist nicht registriert."), frappe.DoesNotExistError)

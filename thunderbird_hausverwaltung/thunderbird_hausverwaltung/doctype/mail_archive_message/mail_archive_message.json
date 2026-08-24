@@ -1,0 +1,53 @@
+{
+ "actions": [],
+ "autoname": "Prompt",
+ "creation": "2026-08-24 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "identity_section", "archive_account", "provider_message_id", "rfc_message_id", "thread_id", "status",
+  "message_section", "subject", "sender_email", "participants", "received_at", "preview", "has_attachment",
+  "location_section", "mailbox_ids", "actual_mailbox_id", "actual_folder_path",
+  "embedding_section", "content_hash", "embedding_model", "embedding_dimension", "embedding", "last_synced"
+ ],
+ "fields": [
+  {"fieldname":"identity_section","fieldtype":"Section Break","label":"Identität"},
+  {"fieldname":"archive_account","fieldtype":"Link","label":"Mail-Archiv-Konto","options":"Mail Archive Account","reqd":1,"read_only":1,"in_list_view":1,"search_index":1},
+  {"fieldname":"provider_message_id","fieldtype":"Data","label":"Provider Message-ID","reqd":1,"read_only":1,"search_index":1},
+  {"fieldname":"rfc_message_id","fieldtype":"Data","label":"RFC Message-ID","length":998,"read_only":1,"search_index":1},
+  {"fieldname":"thread_id","fieldtype":"Data","label":"Provider Thread-ID","read_only":1,"search_index":1},
+  {"fieldname":"status","fieldtype":"Select","label":"Status","options":"Posteingang\nArchiviert\nNicht klassifizierbar\nGelöscht","read_only":1,"in_list_view":1},
+  {"fieldname":"message_section","fieldtype":"Section Break","label":"Nachricht"},
+  {"fieldname":"subject","fieldtype":"Data","label":"Betreff","length":998,"read_only":1,"in_list_view":1},
+  {"fieldname":"sender_email","fieldtype":"Data","label":"Absender-E-Mail","options":"Email","read_only":1,"search_index":1},
+  {"fieldname":"participants","fieldtype":"Long Text","label":"Beteiligte (JSON)","read_only":1},
+  {"fieldname":"received_at","fieldtype":"Datetime","label":"Empfangen am","read_only":1,"in_list_view":1},
+  {"fieldname":"preview","fieldtype":"Small Text","label":"Vorschau","read_only":1},
+  {"default":"0","fieldname":"has_attachment","fieldtype":"Check","label":"Hat Anhang","read_only":1},
+  {"fieldname":"location_section","fieldtype":"Section Break","label":"Ablage"},
+  {"fieldname":"mailbox_ids","fieldtype":"Long Text","label":"Mailbox-IDs (JSON)","read_only":1},
+  {"fieldname":"actual_mailbox_id","fieldtype":"Data","label":"Tatsächliche Mailbox-ID","read_only":1,"search_index":1},
+  {"fieldname":"actual_folder_path","fieldtype":"Small Text","label":"Tatsächlicher Ordner","read_only":1},
+  {"fieldname":"embedding_section","fieldtype":"Section Break","label":"Embedding","collapsible":1},
+  {"fieldname":"content_hash","fieldtype":"Data","label":"Inhaltshash","read_only":1},
+  {"fieldname":"embedding_model","fieldtype":"Data","label":"Embedding-Modell","read_only":1},
+  {"default":"0","fieldname":"embedding_dimension","fieldtype":"Int","label":"Dimension","read_only":1},
+  {"fieldname":"embedding","fieldtype":"Long Text","label":"Embedding (JSON)","hidden":1,"read_only":1},
+  {"fieldname":"last_synced","fieldtype":"Datetime","label":"Zuletzt synchronisiert","read_only":1}
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-24 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Thunderbird Hausverwaltung",
+ "name": "Mail Archive Message",
+ "owner": "Administrator",
+ "permissions": [
+  {"delete":1,"read":1,"report":1,"role":"System Manager"},
+  {"read":1,"report":1,"role":"Hausverwalter"}
+ ],
+ "sort_field": "received_at",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

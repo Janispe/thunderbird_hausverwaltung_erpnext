@@ -40,5 +40,6 @@ override_whitelisted_methods = {
 scheduler_events = {
 	"hourly": [
 		"thunderbird_hausverwaltung.thunderbird_hausverwaltung.integrations.thunderbird_bridge.cleanup_commands",
+		"thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.sync.enqueue_enabled_account_syncs",
 	],
 }

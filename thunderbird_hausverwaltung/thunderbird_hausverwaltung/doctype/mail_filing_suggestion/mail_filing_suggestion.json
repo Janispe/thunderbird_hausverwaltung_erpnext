@@ -1,0 +1,44 @@
+{
+ "actions": [],
+ "autoname": "hash",
+ "creation": "2026-08-24 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "suggestion_section", "archive_account", "archive_message", "requested_by", "status", "model_version",
+  "result_section", "proposed_folder", "confidence", "reasoning", "candidates",
+  "decision_section", "chosen_folder", "decided_on", "error"
+ ],
+ "fields": [
+  {"fieldname":"suggestion_section","fieldtype":"Section Break","label":"Vorschlag"},
+  {"fieldname":"archive_account","fieldtype":"Link","label":"Mail-Archiv-Konto","options":"Mail Archive Account","reqd":1,"read_only":1,"search_index":1},
+  {"fieldname":"archive_message","fieldtype":"Link","label":"Nachricht","options":"Mail Archive Message","reqd":1,"read_only":1,"search_index":1},
+  {"fieldname":"requested_by","fieldtype":"Link","label":"Angefordert von","options":"User","reqd":1,"read_only":1},
+  {"default":"Vorgeschlagen","fieldname":"status","fieldtype":"Select","label":"Status","options":"Vorgeschlagen\nAngenommen\nKorrigiert\nVerworfen\nFehler","reqd":1,"read_only":1,"in_list_view":1},
+  {"fieldname":"model_version","fieldtype":"Data","label":"Modellversion","read_only":1},
+  {"fieldname":"result_section","fieldtype":"Section Break","label":"Ergebnis"},
+  {"fieldname":"proposed_folder","fieldtype":"Link","label":"Erster Vorschlag","options":"Mail Archive Folder","read_only":1,"in_list_view":1},
+  {"default":"0","fieldname":"confidence","fieldtype":"Percent","label":"Konfidenz","read_only":1},
+  {"fieldname":"reasoning","fieldtype":"Small Text","label":"Begründung","read_only":1},
+  {"fieldname":"candidates","fieldtype":"Long Text","label":"Kandidaten (JSON)","read_only":1},
+  {"fieldname":"decision_section","fieldtype":"Section Break","label":"Entscheidung"},
+  {"fieldname":"chosen_folder","fieldtype":"Link","label":"Gewählter Ordner","options":"Mail Archive Folder","read_only":1},
+  {"fieldname":"decided_on","fieldtype":"Datetime","label":"Entschieden am","read_only":1},
+  {"fieldname":"error","fieldtype":"Long Text","label":"Fehler","read_only":1}
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-24 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Thunderbird Hausverwaltung",
+ "name": "Mail Filing Suggestion",
+ "owner": "Administrator",
+ "permissions": [
+  {"delete":1,"read":1,"report":1,"role":"System Manager"},
+  {"read":1,"report":1,"role":"Hausverwalter"}
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
