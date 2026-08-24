@@ -17,19 +17,19 @@ notebook = nbformat.v4.new_notebook(
 	},
 	cells=[
 		nbformat.v4.new_markdown_cell(
-			"""# E-Mail-Ablage: Vorschau gegen vollständigen Nachrichtentext
+			"""# E-Mail-Ablage: BGE-M3 und Qwen3 mit vollständigem Nachrichtentext
 
 ## tl;dr
 
-- Beim besten Hybrid aus Teilnehmerhistorie und BGE-M3 erzielt **Betreff + Vorschau 62,0 % Top-1**; der vollständige Rohtext erreicht **61,4 %**. Das ist kein belastbarer Top-1-Gewinn.
-- Der Rohtext verbessert in derselben Variante **Top-3 von 75,2 % auf 77,5 %** und die gleichgewichtete Ordnerquote, benötigt aber **2,8-mal so viel Embedding-Zeit**.
-- Bei Testnachrichten mit Anhang steigt Top-3 von **71,9 % auf 76,6 %**. Der Inhalt oder Dateiname des Anhangs wurde dabei noch nicht analysiert.
-- Empfehlung: Vorschau vorerst beibehalten. Volltext erst nach einem vollständigen JMAP-Lauf erneut bewerten; danach gezielt Dateinamen und extrahierte Dokumenttexte testen."""
+- Mit vollständigem Rohtext erzielt **Qwen3-Embedding-0.6B 62,5 % Top-1 und 77,8 % Top-3**. BGE-M3 erreicht auf demselben Split **61,4 % und 77,5 %**.
+- Qwens Vorsprung gegenüber BGE-M3 mit Rohtext beträgt nur **1,2 Prozentpunkte Top-1** und **0,3 Punkte Top-3**. Das liegt deutlich innerhalb der ungefähren Stichprobenunsicherheit von ±5,1 Prozentpunkten.
+- Qwen3 profitiert stärker vom gesamten Rohtext als von Betreff + Vorschau, benötigt lokal jedoch **36,8 ms statt 9,4 ms je Nachricht**. BGE-M3 benötigt mit Rohtext 20,9 ms und mit Vorschau 7,4 ms.
+- Empfehlung: Qwen3-Volltext als aussichtsreichen Kandidaten behalten, aber noch nicht zum eindeutigen Sieger erklären. Die Entscheidung sollte mit dem vollständigen JMAP-Snapshot wiederholt werden."""
 		),
 		nbformat.v4.new_markdown_cell(
 			"""## Context & Methods
 
-Fragestellung: Verbessert der gesamte Nachrichtentext die Ordnerempfehlung gegenüber der bisherigen Kombination aus Betreff und Vorschau?
+Fragestellung: Verbessert der gesamte Nachrichtentext die Ordnerempfehlung und verhält sich Qwen3-Embedding-0.6B dabei anders als BGE-M3?
 
 ### Key Assumptions
 
@@ -38,8 +38,9 @@ Fragestellung: Verbessert der gesamte Nachrichtentext die Ordnerempfehlung gegen
 - Pro Ordner bilden die älteren 80 % das Training und die jüngeren 20 % den Test.
 - Ordner mit weniger als acht Nachrichten werden ausgeschlossen.
 - Die Hauptkohorte „new thread“ enthält nur Testmails ohne bereits im Training vorkommenden Thread.
-- Verglichen werden `subject_preview`, `subject_clean_text` und `subject_full_text` mit demselben BGE-M3-Modell und demselben Split.
-- BGE-M3 hat ein Kontextfenster von 8.192 Tokens. Sehr lange Rohtexte werden vom lokalen Ollama-Endpunkt am Modellfenster abgeschnitten.
+- Beide Modelle verwenden dieselben Nachrichten, Labels, Splits und Klassifikationsmethoden.
+- Verglichen werden `subject_preview`, `subject_clean_text` und `subject_full_text`.
+- Das lokale BGE-M3 hat 8.192 Tokens Kontext; Qwen3-Embedding-0.6B hat 32.768. Sehr lange Texte werden am jeweiligen Modellfenster abgeschnitten.
 - Der Stalwart-Endpunkt war während des Laufs nicht erreichbar. Daher stammen die Volltexte read-only aus dem lokalen Thunderbird-mbox-Cache und werden ausschließlich über RFC-Message-ID mit den ERPNext-Labels verbunden.
 - Weder Nachrichtentexte noch Vektoren wurden an einen externen Dienst übertragen."""
 		),
@@ -48,75 +49,87 @@ Fragestellung: Verbessert der gesamte Nachrichtentext die Ordnerempfehlung gegen
 			"""from pathlib import Path
 import json
 
-result = json.loads(Path("benchmark_result.json").read_text(encoding="utf-8"))
+bge = json.loads(Path("benchmark_result.json").read_text(encoding="utf-8"))
+qwen = json.loads(Path("qwen3_benchmark_result.json").read_text(encoding="utf-8"))
+results_by_model = {"BGE-M3": bge, "Qwen3-Embedding-0.6B": qwen}
+
 profile = {
-    "indexed_messages": result["source_messages_before_full_text_filter"],
-    "matched_nonempty_full_text": result["full_text_profile"]["nonempty_full_text"],
-    "eligible_full_text_messages": result["source_messages"],
-    "train_messages": result["train_messages"],
-    "test_messages": result["test_messages"],
-    "new_thread_test_messages": result["new_thread_test_messages"],
-    "eligible_folders": result["eligible_folders"],
-    "attachment_messages": result["attachment_messages"],
+    "indexed_messages": bge["source_messages_before_full_text_filter"],
+    "matched_nonempty_full_text": bge["full_text_profile"]["nonempty_full_text"],
+    "eligible_full_text_messages": bge["source_messages"],
+    "train_messages": bge["train_messages"],
+    "test_messages": bge["test_messages"],
+    "new_thread_test_messages": bge["new_thread_test_messages"],
+    "eligible_folders": bge["eligible_folders"],
+    "attachment_messages": bge["attachment_messages"],
 }
+
+split_keys = [
+    "source_messages_before_full_text_filter", "source_messages", "train_messages",
+    "test_messages", "new_thread_test_messages", "eligible_folders",
+    "excluded_sparse_messages", "attachment_messages",
+]
+assert all(bge[key] == qwen[key] for key in split_keys)
 profile"""
 		),
 		nbformat.v4.new_markdown_cell(
 			"""Von 16.000 indexierten Nachrichten konnten 2.082 nichtleere Volltexte aus dem lokalen Cache zugeordnet werden. Nach Ausschluss kleiner Ordner bleiben 1.950 Nachrichten in 59 Ordnern; davon sind 395 Testnachrichten und 347 neue Threads.
 
-Die Rohtexte haben im Median 1.136 Zeichen, im 95. Perzentil 4.752 und im 99. Perzentil 8.995 Zeichen. Sieben Texte überschreiten 16.000 Zeichen; drei überschreiten 100.000 Zeichen. Ein extremer MIME-Ausreißer mit rund 20 MB wird durch das Modellfenster abgeschnitten."""
+Die Rohtexte haben im Median 1.136 Zeichen, im 95. Perzentil 4.752 und im 99. Perzentil 8.995 Zeichen. Sieben Texte überschreiten 16.000 Zeichen; drei überschreiten 100.000 Zeichen. Extreme MIME-Ausreißer werden durch das jeweilige Modellfenster abgeschnitten."""
 		),
 		nbformat.v4.new_markdown_cell("## Results"),
 		nbformat.v4.new_code_cell(
 			"""variants = ["subject_preview", "subject_clean_text", "subject_full_text"]
 methods = ["participant-gate-0.5-then-centroid", "folder-centroid", "weighted-7nn"]
 comparison = []
-for method in methods:
-    for variant in variants:
-        row = next(
-            item for item in result["results"]
-            if item["model"] == "bge-m3"
-            and item["method"] == method
-            and item["text_variant"] == variant
-        )
-        metrics = row["metrics"]["new_thread"]
-        comparison.append({
-            "method": method,
-            "text": variant,
-            "top1": metrics["top1"],
-            "top3": metrics["top3"],
-            "macro_top1": metrics["macro_top1"],
-            "ms_per_message": row["embedding_ms_per_message"],
-        })
+for model_label, result in results_by_model.items():
+    for method in methods:
+        for variant in variants:
+            row = next(
+                item for item in result["results"]
+                if item["method"] == method and item["text_variant"] == variant
+            )
+            metrics = row["metrics"]["new_thread"]
+            comparison.append({
+                "model": model_label,
+                "method": method,
+                "text": variant,
+                "top1": metrics["top1"],
+                "top3": metrics["top3"],
+                "macro_top1": metrics["macro_top1"],
+                "ms_per_message": row["embedding_ms_per_message"],
+            })
 
 for row in comparison:
     print(
         f'{row["top1"]:6.1%} Top-1 | {row["top3"]:6.1%} Top-3 | '
         f'{row["macro_top1"]:6.1%} Macro | {row["ms_per_message"]:5.1f} ms | '
-        f'{row["method"]:38} | {row["text"]}'
+        f'{row["model"]:23} | {row["method"]:38} | {row["text"]}'
     )"""
 		),
 		nbformat.v4.new_markdown_cell("### Nachrichten mit und ohne Anhang"),
 		nbformat.v4.new_code_cell(
 			"""attachment_rows = []
-for variant in variants:
-    row = next(
-        item for item in result["results"]
-        if item["model"] == "bge-m3"
-        and item["method"] == "participant-gate-0.5-then-centroid"
-        and item["text_variant"] == variant
-    )
-    attachment_rows.append({
-        "text": variant,
-        "with_attachment_top1": row["metrics"]["with_attachment"]["top1"],
-        "with_attachment_top3": row["metrics"]["with_attachment"]["top3"],
-        "without_attachment_top1": row["metrics"]["without_attachment"]["top1"],
-        "without_attachment_top3": row["metrics"]["without_attachment"]["top3"],
-    })
+for model_label, result in results_by_model.items():
+    for variant in variants:
+        row = next(
+            item for item in result["results"]
+            if item["method"] == "participant-gate-0.5-then-centroid"
+            and item["text_variant"] == variant
+        )
+        attachment_rows.append({
+            "model": model_label,
+            "text": variant,
+            "with_attachment_top1": row["metrics"]["with_attachment"]["top1"],
+            "with_attachment_top3": row["metrics"]["with_attachment"]["top3"],
+            "without_attachment_top1": row["metrics"]["without_attachment"]["top1"],
+            "without_attachment_top3": row["metrics"]["without_attachment"]["top3"],
+        })
 
 for row in attachment_rows:
     print(
-        f'{row["text"]:20} | mit Anhang {row["with_attachment_top1"]:6.1%}/{row["with_attachment_top3"]:6.1%} '
+        f'{row["model"]:23} | {row["text"]:20} | '
+        f'mit Anhang {row["with_attachment_top1"]:6.1%}/{row["with_attachment_top3"]:6.1%} '
         f'| ohne Anhang {row["without_attachment_top1"]:6.1%}/{row["without_attachment_top3"]:6.1%}'
     )"""
 		),
@@ -125,25 +138,27 @@ for row in attachment_rows:
 		),
 		nbformat.v4.new_markdown_cell("### Validation checks"),
 		nbformat.v4.new_code_cell(
-			"""assert profile["train_messages"] + profile["test_messages"] + result["excluded_sparse_messages"] == profile["eligible_full_text_messages"]
-assert profile["new_thread_test_messages"] <= profile["test_messages"]
-assert result["full_text_profile"]["empty_full_text"] + result["full_text_profile"]["nonempty_full_text"] == profile["indexed_messages"]
-for row in result["results"]:
-    for cohort in row["metrics"].values():
-        assert 0 <= cohort["top1"] <= cohort["top3"] <= 1
-        assert 0 <= cohort["macro_top1"] <= 1
+			"""for result in results_by_model.values():
+    assert profile["train_messages"] + profile["test_messages"] + result["excluded_sparse_messages"] == profile["eligible_full_text_messages"]
+    assert profile["new_thread_test_messages"] <= profile["test_messages"]
+    assert result["full_text_profile"]["empty_full_text"] + result["full_text_profile"]["nonempty_full_text"] == profile["indexed_messages"]
+    for row in result["results"]:
+        for cohort in row["metrics"].values():
+            assert 0 <= cohort["top1"] <= cohort["top3"] <= 1
+            assert 0 <= cohort["macro_top1"] <= 1
 
 sample_size = profile["new_thread_test_messages"]
 approximate_margin = 1.96 * ((0.62 * 0.38 / sample_size) ** 0.5)
-print(f"Konsistenzprüfungen bestanden; ungefähre 95%-Fehlerspanne einer einzelnen Top-1-Quote: ±{approximate_margin:.1%}.")"""
+print(f"Konsistenzprüfungen bestanden; identischer Split; ungefähre 95%-Fehlerspanne einer einzelnen Top-1-Quote: ±{approximate_margin:.1%}.")"""
 		),
 		nbformat.v4.new_markdown_cell(
 			"""## Takeaways
 
-1. **Kein belastbarer Top-1-Vorteil:** Im stärksten Hybrid liegt der Rohtext 0,6 Prozentpunkte und der bereinigte Text 2,0 Punkte unter der Vorschau. Diese Differenzen sind bei 347 neuen Threads kleiner als die Stichprobenunsicherheit.
-2. **Leicht besseres Top-3:** Beide Volltextvarianten gewinnen 2,3 Prozentpunkte Top-3. Der reine Zentroid profitiert vom Rohtext ebenfalls leicht; gewichtete Nachbarn profitieren stärker.
-3. **Mehr Rechenaufwand:** Volltext benötigt rund 20,9 statt 7,4 ms je Embedding und ist damit 2,8-mal langsamer.
-4. **Anhänge bleiben interessant:** Bei Nachrichten mit Anhang gewinnt Volltext etwa 4,8 Prozentpunkte Top-3. Das begründet einen eigenen Test mit Dateinamen und extrahiertem PDF-/Office-Text, beweist aber noch keinen Nutzen des Anhanginhalts.
+1. **Qwen3 mit Rohtext gewinnt nominell:** Im Teilnehmer-Hybrid erreicht es 62,5 % Top-1 und 77,8 % Top-3. Gegenüber Qwens Vorschau sind das +4,0 beziehungsweise +2,9 Prozentpunkte.
+2. **Kein belastbarer Modellsieger:** Gegenüber BGE-M3 mit Rohtext beträgt Qwens Vorteil nur +1,2 Punkte Top-1 und +0,3 Punkte Top-3. BGE-M3 hat mit 70,1 % sogar die leicht bessere gleichgewichtete Ordnerquote als Qwen3 mit 69,8 %. Alle Unterschiede liegen innerhalb der ungefähren ±5,1-Prozentpunkte-Unsicherheit.
+3. **Deutlicher Laufzeitunterschied:** Qwen3-Rohtext benötigt lokal 36,8 ms pro Embedding, BGE-M3-Rohtext 20,9 ms und BGE-M3-Vorschau 7,4 ms. Für einmalige Archivindexierung kann das akzeptabel sein, für häufige Neuindexierungen ist es relevant.
+4. **Top-3 ist für das Add-on besonders wichtig:** Weil Thunderbird mehrere Vorschläge zeigt, ist Qwen3-Rohtext gegenüber BGE-M3-Vorschau mit +2,6 Punkten Top-3 interessant, aber noch nicht abschließend belegt.
+5. **Anhänge bleiben eine eigene Dimension:** Qwen3-Rohtext erreicht bei Nachrichten mit Anhang 63,5 % Top-1 und 77,3 % Top-3. Inhalt und Dateiname der Anhänge wurden nicht eingebettet.
 
 ### Validierungsurteil: mit Vorbehalten verwendbar
 
