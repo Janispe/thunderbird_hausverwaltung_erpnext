@@ -17,19 +17,19 @@ notebook = nbformat.v4.new_notebook(
 	},
 	cells=[
 		nbformat.v4.new_markdown_cell(
-			"""# E-Mail-Ablage: BGE-M3 und Qwen3 mit vollständigem Nachrichtentext
+			"""# E-Mail-Ablage: BGE-M3 und Qwen3 Q8/F16 mit vollständigem Nachrichtentext
 
 ## tl;dr
 
-- Mit vollständigem Rohtext erzielt **Qwen3-Embedding-0.6B 62,5 % Top-1 und 77,8 % Top-3**. BGE-M3 erreicht auf demselben Split **61,4 % und 77,5 %**.
-- Qwens Vorsprung gegenüber BGE-M3 mit Rohtext beträgt nur **1,2 Prozentpunkte Top-1** und **0,3 Punkte Top-3**. Das liegt deutlich innerhalb der ungefähren Stichprobenunsicherheit von ±5,1 Prozentpunkten.
-- Qwen3 profitiert stärker vom gesamten Rohtext als von Betreff + Vorschau, benötigt lokal jedoch **36,8 ms statt 9,4 ms je Nachricht**. BGE-M3 benötigt mit Rohtext 20,9 ms und mit Vorschau 7,4 ms.
-- Empfehlung: Qwen3-Volltext als aussichtsreichen Kandidaten behalten, aber noch nicht zum eindeutigen Sieger erklären. Die Entscheidung sollte mit dem vollständigen JMAP-Snapshot wiederholt werden."""
+- **F16 verbessert Qwen3 praktisch nicht:** Mit vollständigem Rohtext erreicht Q8 **62,54 % Top-1 / 77,81 % Top-3**, F16 **62,25 % / 77,81 %**.
+- Die Differenz entspricht genau einer Testmail bei Top-1 und null Testmails bei Top-3. Sie ist weder praktisch noch statistisch relevant.
+- F16 belegt als Ollama-Modell **1,2 GB statt 639 MB** und geladen auf der Test-GPU rund **2,2 statt 1,5 GB**. Es war in diesem einzelnen Lauf nicht langsamer, aber der geringe Zeitunterschied ist kein belastbarer Qualitätsvorteil.
+- Empfehlung: **Q8 beibehalten**. F16 verdoppelt den Modellplatz annähernd, ohne die Ablagevorschläge messbar zu verbessern."""
 		),
 		nbformat.v4.new_markdown_cell(
 			"""## Context & Methods
 
-Fragestellung: Verbessert der gesamte Nachrichtentext die Ordnerempfehlung und verhält sich Qwen3-Embedding-0.6B dabei anders als BGE-M3?
+Fragestellung: Verbessert F16 gegenüber Q8 die Ordnerempfehlung von Qwen3-Embedding-0.6B, insbesondere mit vollständigem Nachrichtentext?
 
 ### Key Assumptions
 
@@ -38,9 +38,11 @@ Fragestellung: Verbessert der gesamte Nachrichtentext die Ordnerempfehlung und v
 - Pro Ordner bilden die älteren 80 % das Training und die jüngeren 20 % den Test.
 - Ordner mit weniger als acht Nachrichten werden ausgeschlossen.
 - Die Hauptkohorte „new thread“ enthält nur Testmails ohne bereits im Training vorkommenden Thread.
-- Beide Modelle verwenden dieselben Nachrichten, Labels, Splits und Klassifikationsmethoden.
+- BGE-M3, Qwen3 Q8 und Qwen3 F16 verwenden dieselben Nachrichten, Labels, Splits und Klassifikationsmethoden.
 - Verglichen werden `subject_preview`, `subject_clean_text` und `subject_full_text`.
-- Das lokale BGE-M3 hat 8.192 Tokens Kontext; Qwen3-Embedding-0.6B hat 32.768. Sehr lange Texte werden am jeweiligen Modellfenster abgeschnitten.
+- Die Modelldatei unterstützt bei BGE-M3 maximal 8.192 und bei Qwen3 maximal 32.768 Tokens. Ollama 0.23.0 lud für die Benchmark-Aufrufe jedoch alle Varianten mit dem Standardkontext von 4.096 Tokens; längere Eingaben wurden dadurch abgeschnitten.
+- Verwendet wurden die offiziellen Ollama-Tags `qwen3-embedding:0.6b` (Q8_0, ID `ac6da0dfba84`) und [`qwen3-embedding:0.6b-fp16`](https://ollama.com/library/qwen3-embedding:0.6b-fp16) (F16, ID `67a7592a8852`).
+- Q8 und F16 wurden nacheinander auf derselben GPU und mit demselben Ollama-Endpunkt getestet. Laufzeiten einzelner Durchläufe können durch Warm-up und Caching schwanken.
 - Der Stalwart-Endpunkt war während des Laufs nicht erreichbar. Daher stammen die Volltexte read-only aus dem lokalen Thunderbird-mbox-Cache und werden ausschließlich über RFC-Message-ID mit den ERPNext-Labels verbunden.
 - Weder Nachrichtentexte noch Vektoren wurden an einen externen Dienst übertragen."""
 		),
@@ -50,8 +52,13 @@ Fragestellung: Verbessert der gesamte Nachrichtentext die Ordnerempfehlung und v
 import json
 
 bge = json.loads(Path("benchmark_result.json").read_text(encoding="utf-8"))
-qwen = json.loads(Path("qwen3_benchmark_result.json").read_text(encoding="utf-8"))
-results_by_model = {"BGE-M3": bge, "Qwen3-Embedding-0.6B": qwen}
+qwen_q8 = json.loads(Path("qwen3_benchmark_result.json").read_text(encoding="utf-8"))
+qwen_f16 = json.loads(Path("qwen3_f16_benchmark_result.json").read_text(encoding="utf-8"))
+results_by_model = {
+    "BGE-M3 F16": bge,
+    "Qwen3-0.6B Q8": qwen_q8,
+    "Qwen3-0.6B F16": qwen_f16,
+}
 
 profile = {
     "indexed_messages": bge["source_messages_before_full_text_filter"],
@@ -69,13 +76,17 @@ split_keys = [
     "test_messages", "new_thread_test_messages", "eligible_folders",
     "excluded_sparse_messages", "attachment_messages",
 ]
-assert all(bge[key] == qwen[key] for key in split_keys)
+assert all(
+    bge[key] == result[key]
+    for result in results_by_model.values()
+    for key in split_keys
+)
 profile"""
 		),
 		nbformat.v4.new_markdown_cell(
 			"""Von 16.000 indexierten Nachrichten konnten 2.082 nichtleere Volltexte aus dem lokalen Cache zugeordnet werden. Nach Ausschluss kleiner Ordner bleiben 1.950 Nachrichten in 59 Ordnern; davon sind 395 Testnachrichten und 347 neue Threads.
 
-Die Rohtexte haben im Median 1.136 Zeichen, im 95. Perzentil 4.752 und im 99. Perzentil 8.995 Zeichen. Sieben Texte überschreiten 16.000 Zeichen; drei überschreiten 100.000 Zeichen. Extreme MIME-Ausreißer werden durch das jeweilige Modellfenster abgeschnitten."""
+Die Rohtexte haben im Median 1.135 Zeichen und im 95. Perzentil 4.793 Zeichen. Extreme MIME-Ausreißer werden durch den tatsächlich geladenen Ollama-Kontext von 4.096 Tokens abgeschnitten."""
 		),
 		nbformat.v4.new_markdown_cell("## Results"),
 		nbformat.v4.new_code_cell(
@@ -104,8 +115,42 @@ for row in comparison:
     print(
         f'{row["top1"]:6.1%} Top-1 | {row["top3"]:6.1%} Top-3 | '
         f'{row["macro_top1"]:6.1%} Macro | {row["ms_per_message"]:5.1f} ms | '
-        f'{row["model"]:23} | {row["method"]:38} | {row["text"]}'
+        f'{row["model"]:18} | {row["method"]:38} | {row["text"]}'
     )"""
+		),
+		nbformat.v4.new_markdown_cell("### Qwen3: Q8 gegen F16"),
+		nbformat.v4.new_code_cell(
+			"""precision_comparison = []
+for variant in variants:
+    rows = {}
+    for precision, result in (("Q8", qwen_q8), ("F16", qwen_f16)):
+        rows[precision] = next(
+            item for item in result["results"]
+            if item["method"] == "participant-gate-0.5-then-centroid"
+            and item["text_variant"] == variant
+        )
+    q8_metrics = rows["Q8"]["metrics"]["new_thread"]
+    f16_metrics = rows["F16"]["metrics"]["new_thread"]
+    precision_comparison.append({
+        "text": variant,
+        "q8_top1": q8_metrics["top1"],
+        "f16_top1": f16_metrics["top1"],
+        "delta_top1_pp": 100 * (f16_metrics["top1"] - q8_metrics["top1"]),
+        "q8_top3": q8_metrics["top3"],
+        "f16_top3": f16_metrics["top3"],
+        "delta_top3_pp": 100 * (f16_metrics["top3"] - q8_metrics["top3"]),
+        "q8_ms": rows["Q8"]["embedding_ms_per_message"],
+        "f16_ms": rows["F16"]["embedding_ms_per_message"],
+    })
+
+for row in precision_comparison:
+    print(
+        f'{row["text"]:20} | Top-1 Q8/F16 {row["q8_top1"]:6.2%}/{row["f16_top1"]:6.2%} '
+        f'({row["delta_top1_pp"]:+.2f} pp) | Top-3 {row["q8_top3"]:6.2%}/{row["f16_top3"]:6.2%} '
+        f'({row["delta_top3_pp"]:+.2f} pp) | {row["q8_ms"]:.1f}/{row["f16_ms"]:.1f} ms'
+    )
+
+print("Ollama-Speicher: Q8 639 MB Datei / 1,5 GB geladen; F16 1,2 GB Datei / 2,2 GB geladen; Kontext jeweils 4.096 Tokens.")"""
 		),
 		nbformat.v4.new_markdown_cell("### Nachrichten mit und ohne Anhang"),
 		nbformat.v4.new_code_cell(
@@ -128,7 +173,7 @@ for model_label, result in results_by_model.items():
 
 for row in attachment_rows:
     print(
-        f'{row["model"]:23} | {row["text"]:20} | '
+        f'{row["model"]:18} | {row["text"]:20} | '
         f'mit Anhang {row["with_attachment_top1"]:6.1%}/{row["with_attachment_top3"]:6.1%} '
         f'| ohne Anhang {row["without_attachment_top1"]:6.1%}/{row["without_attachment_top3"]:6.1%}'
     )"""
@@ -147,6 +192,11 @@ for row in attachment_rows:
             assert 0 <= cohort["top1"] <= cohort["top3"] <= 1
             assert 0 <= cohort["macro_top1"] <= 1
 
+assert all(
+    bge["full_text_profile"] == result["full_text_profile"]
+    for result in results_by_model.values()
+)
+
 sample_size = profile["new_thread_test_messages"]
 approximate_margin = 1.96 * ((0.62 * 0.38 / sample_size) ** 0.5)
 print(f"Konsistenzprüfungen bestanden; identischer Split; ungefähre 95%-Fehlerspanne einer einzelnen Top-1-Quote: ±{approximate_margin:.1%}.")"""
@@ -154,15 +204,15 @@ print(f"Konsistenzprüfungen bestanden; identischer Split; ungefähre 95%-Fehler
 		nbformat.v4.new_markdown_cell(
 			"""## Takeaways
 
-1. **Qwen3 mit Rohtext gewinnt nominell:** Im Teilnehmer-Hybrid erreicht es 62,5 % Top-1 und 77,8 % Top-3. Gegenüber Qwens Vorschau sind das +4,0 beziehungsweise +2,9 Prozentpunkte.
-2. **Kein belastbarer Modellsieger:** Gegenüber BGE-M3 mit Rohtext beträgt Qwens Vorteil nur +1,2 Punkte Top-1 und +0,3 Punkte Top-3. BGE-M3 hat mit 70,1 % sogar die leicht bessere gleichgewichtete Ordnerquote als Qwen3 mit 69,8 %. Alle Unterschiede liegen innerhalb der ungefähren ±5,1-Prozentpunkte-Unsicherheit.
-3. **Deutlicher Laufzeitunterschied:** Qwen3-Rohtext benötigt lokal 36,8 ms pro Embedding, BGE-M3-Rohtext 20,9 ms und BGE-M3-Vorschau 7,4 ms. Für einmalige Archivindexierung kann das akzeptabel sein, für häufige Neuindexierungen ist es relevant.
-4. **Top-3 ist für das Add-on besonders wichtig:** Weil Thunderbird mehrere Vorschläge zeigt, ist Qwen3-Rohtext gegenüber BGE-M3-Vorschau mit +2,6 Punkten Top-3 interessant, aber noch nicht abschließend belegt.
-5. **Anhänge bleiben eine eigene Dimension:** Qwen3-Rohtext erreicht bei Nachrichten mit Anhang 63,5 % Top-1 und 77,3 % Top-3. Inhalt und Dateiname der Anhänge wurden nicht eingebettet.
+1. **F16 bringt keinen Qualitätsgewinn:** Beim Rohtext verliert F16 gegenüber Q8 genau 0,29 Prozentpunkte Top-1 und bleibt bei Top-3 identisch. Bei Vorschau und bereinigtem Text gewinnt F16 nur 0,29 beziehungsweise 0,29 Punkte Top-1.
+2. **Die Präzisionsunterschiede entsprechen höchstens zwei Testmails:** Bei 347 neuen Threads sind die beobachteten Abweichungen viel kleiner als die ungefähre ±5,1-Prozentpunkte-Stichprobenunsicherheit.
+3. **Q8 ist speichereffizienter:** Die Modelldatei benötigt 639 MB statt 1,2 GB; geladen wurden rund 1,5 statt 2,2 GB GPU-Speicher. Die einmalig beobachtete F16-Laufzeit war ähnlich oder etwas niedriger, ist ohne Wiederholung aber kein belastbarer Geschwindigkeitsvergleich.
+4. **Der Volltextbefund bleibt bestehen:** Beide Qwen-Präzisionen erreichen mit Rohtext 77,81 % Top-3 und schlagen ihre Vorschau. Für das Thunderbird-Add-on ist Q8 daher der bessere praktische Kompromiss.
+5. **„Volltext“ bezeichnet die vollständige Eingabe:** Ollama hat davon höchstens 4.096 Tokens verarbeitet. Ein späterer Chunking- oder expliziter Langkontext-Test wäre eine andere Versuchsfrage.
 
 ### Validierungsurteil: mit Vorbehalten verwendbar
 
-Die Berechnungen und Splits sind konsistent, aber der lokale Cache deckt nur rund 13 % der 16.000 indexierten Nachrichten ab und kann geöffnete oder offline gespeicherte Mails überrepräsentieren. Vor einer Produktiventscheidung muss derselbe Lauf nach Wiederherstellung von JMAP auf dem vollständigen Snapshot wiederholt werden."""
+Die Berechnungen, Volltextprofile und Splits sind identisch. Der lokale Cache deckt jedoch nur rund 13 % der 16.000 indexierten Nachrichten ab und kann geöffnete oder offline gespeicherte Mails überrepräsentieren. Der Qualitätsvergleich Q8/F16 ist auf dieser Kohorte deutlich genug für die Empfehlung Q8; absolute Modellquoten sollten nach Wiederherstellung von JMAP auf dem vollständigen Snapshot erneut geprüft werden."""
 		),
 	],
 )
