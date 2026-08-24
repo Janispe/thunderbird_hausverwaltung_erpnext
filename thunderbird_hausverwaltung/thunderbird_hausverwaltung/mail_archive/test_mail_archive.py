@@ -9,6 +9,7 @@ from .classifier import _matches_business_context
 from .embeddings import clean_message_text, cosine_similarity, normalize_vector
 from .evaluation import (
 	_address_history_rankings,
+	_embed,
 	_embedding_text,
 	_infer_own_addresses,
 	_participant_addresses,
@@ -212,6 +213,32 @@ class TestMailArchive(TestCase):
 		self.assertIn("Kurze Vorschau", _embedding_text(row, "subject_preview"))
 		self.assertNotIn("Alter zitierter Inhalt", _embedding_text(row, "subject_clean_text"))
 		self.assertIn("Alter zitierter Inhalt", _embedding_text(row, "subject_full_text"))
+
+	@patch("thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.evaluation.requests.post")
+	def test_evaluation_passes_explicit_context_length_to_ollama(self, post: Mock) -> None:
+		response = Mock(ok=True)
+		response.json.return_value = {"embeddings": [[3.0, 4.0]]}
+		post.return_value = response
+
+		vectors, _seconds, fallback_count = _embed(
+			["Nachricht"],
+			model="qwen3-embedding:0.6b",
+			base_url="http://ollama.example",
+			num_ctx=32768,
+		)
+
+		self.assertEqual(fallback_count, 0)
+		self.assertAlmostEqual(float(vectors[0][0]), 0.6)
+		post.assert_called_once_with(
+			"http://ollama.example/api/embed",
+			json={
+				"model": "qwen3-embedding:0.6b",
+				"input": ["Nachricht"],
+				"truncate": True,
+				"options": {"num_ctx": 32768},
+			},
+			timeout=300,
+		)
 
 	def test_sender_gate_uses_only_a_reliable_sender_history(self) -> None:
 		train = [

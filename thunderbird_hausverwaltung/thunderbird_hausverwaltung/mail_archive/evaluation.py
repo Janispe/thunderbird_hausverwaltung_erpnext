@@ -349,6 +349,7 @@ def _embed(
 	base_url: str,
 	batch_size: int = 64,
 	timeout: int = 300,
+	num_ctx: int | None = None,
 ) -> tuple[np.ndarray, float, int]:
 	started = time.perf_counter()
 	vectors: list[list[float]] = []
@@ -356,9 +357,12 @@ def _embed(
 
 	def embed_batch(batch: list[str]) -> list[list[float]]:
 		nonlocal fallback_count
+		payload: dict[str, Any] = {"model": model, "input": batch, "truncate": True}
+		if num_ctx:
+			payload["options"] = {"num_ctx": int(num_ctx)}
 		response = requests.post(
 			f"{base_url.rstrip('/')}/api/embed",
-			json={"model": model, "input": batch, "truncate": True},
+			json=payload,
 			timeout=timeout,
 		)
 		if response.ok:
@@ -372,9 +376,16 @@ def _embed(
 			middle = len(batch) // 2
 			return [*embed_batch(batch[:middle]), *embed_batch(batch[middle:])]
 		fallback_count += 1
+		fallback_payload: dict[str, Any] = {
+			"model": model,
+			"input": ["(nicht auswertbarer E-Mail-Text)"],
+			"truncate": True,
+		}
+		if num_ctx:
+			fallback_payload["options"] = {"num_ctx": int(num_ctx)}
 		fallback = requests.post(
 			f"{base_url.rstrip('/')}/api/embed",
-			json={"model": model, "input": ["(nicht auswertbarer E-Mail-Text)"], "truncate": True},
+			json=fallback_payload,
 			timeout=timeout,
 		)
 		fallback.raise_for_status()
@@ -642,6 +653,7 @@ def run_benchmark(
 	full_text_batch_size: int = 8,
 	full_text_path: str = "",
 	require_full_text: bool = False,
+	embedding_context_length: int = 0,
 ) -> dict[str, Any]:
 	"""Backtest archived folder labels without changing messages or account settings."""
 	models = tuple(models or DEFAULT_MODELS)
@@ -740,6 +752,7 @@ def run_benchmark(
 				model=model,
 				base_url=ollama_url,
 				batch_size=full_text_batch_size if variant in FULL_TEXT_VARIANTS else 64,
+				num_ctx=embedding_context_length or None,
 			)
 			train_vectors = vectors[: len(train)]
 			test_vectors = vectors[len(train) :]
@@ -853,6 +866,7 @@ def run_benchmark(
 		"test_messages": len(test),
 		"test_fraction_per_folder": test_fraction,
 		"min_messages_per_folder": min_messages_per_folder,
+		"embedding_context_length": embedding_context_length or None,
 		"own_address_diagnostics": own_address_diagnostics,
 		"participant_coverage": _participant_coverage(rows),
 		"attachment_messages": sum(bool(row.has_attachment) for row in rows),
