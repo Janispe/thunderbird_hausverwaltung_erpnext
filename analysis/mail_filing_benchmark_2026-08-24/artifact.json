@@ -1,0 +1,226 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "Empfänger verbessern die E-Mail-Ablage deutlich",
+    "description": "Zeitlicher Backtest von Absender-, Empfänger-, Teilnehmer- und Embedding-Signalen im Stalwart-Archiv.",
+    "generatedAt": "2026-08-24T20:05:00+02:00",
+    "blocks": [
+      {
+        "id": "title",
+        "type": "markdown",
+        "body": "# Empfänger verbessern die E-Mail-Ablage deutlich"
+      },
+      {
+        "id": "summary",
+        "type": "markdown",
+        "sourceId": "benchmark-run",
+        "body": "## Executive Summary\n\n- **Empfänger sind entscheidend, aber erst zusammen mit dem Absender.** Nur Empfängerhistorie erreicht 40,2 % richtige Erstvorschläge, nur Absender 39,0 %. Die gemeinsame Historie aus `From`, `To` und `Cc` erreicht ohne Embeddings 70,5 %.\n- **BGE-M3 verbessert den kombinierten Ansatz weiter.** Wenn eine ausreichend eindeutige Teilnehmerhistorie entscheidet und sonst BGE-M3 übernimmt, steigt Top-1 auf 74,0 % und Top-3 auf 81,7 %.\n- **Für Vorschläge ist das stark genug, für automatische Ablage noch nicht.** Der Erstindex ist unvollständig und die Gate-Schwelle wurde explorativ auf demselben Testsatz gewählt."
+      },
+      {
+        "id": "headline-metrics",
+        "type": "metric-strip",
+        "cardIds": ["best-top1", "best-top3", "new-thread-tests", "eligible-folders"]
+      },
+      {
+        "id": "finding",
+        "type": "markdown",
+        "sourceId": "benchmark-run",
+        "body": "## Teilnehmerhistorie ist das stärkste Signal\n\nDie Kombination aller Beteiligten schlägt die bisherigen Einzelmethoden klar. Ohne Embeddings steigt Top-1 gegenüber der reinen Absenderhistorie um 31,5 Prozentpunkte. Mit einer 0,5-Schleuse und BGE-M3 als Rückfall sind es weitere 3,4 Prozentpunkte. Gegenüber dem bisherigen Absender-Gate verbessert sich Top-1 insgesamt um 19,4 Prozentpunkte.\n\nDer Effekt bleibt auf neuen Threads bestehen. Er kommt daher nicht bloß vom Wiedererkennen einer alten Unterhaltung, sondern von wiederkehrenden Korrespondenzbeziehungen über mehrere Nachrichten hinweg."
+      },
+      {
+        "id": "results-intro",
+        "type": "markdown",
+        "body": "### Vergleich der wichtigsten Varianten\n\nDie gruppierten Balken zeigen, wie oft der richtige Ordner an Position eins beziehungsweise unter den ersten drei Vorschlägen liegt. Der Teilnehmer-Ansatz führt sowohl ohne Embeddings als auch mit BGE-M3 deutlich; die anschließende Tabelle bewahrt die exakten Werte und die gleichgewichtete Ordnerquote."
+      },
+      {
+        "id": "results-chart",
+        "type": "chart",
+        "chartId": "benchmark-chart"
+      },
+      {
+        "id": "results-table",
+        "type": "table",
+        "tableId": "benchmark-table"
+      },
+      {
+        "id": "scope",
+        "type": "markdown",
+        "sourceId": "benchmark-run",
+        "body": "## Gemessen wurde eine zeitliche Ablagesimulation\n\nAus 8.000 eindeutig abgelegten Nachrichten wurden pro Ordner die älteren 80 % als Training und die jüngeren 20 % als Test verwendet. 177 Ordner mit mindestens acht Nachrichten lieferten 6.206 Trainings- und 1.560 Testmails. Die Hauptkohorte enthält 1.367 Testmails, deren Thread im Training nicht vorkommt.\n\n**Top-1** bedeutet, dass der erste Vorschlag dem gespeicherten Ordner entspricht. **Top-3** bedeutet, dass der gespeicherte Ordner unter den ersten drei Vorschlägen liegt. **Macro Top-1** gewichtet jeden Ordner gleich, damit große Ordner kleine Klassen nicht überdecken."
+      },
+      {
+        "id": "methodology",
+        "type": "markdown",
+        "body": "## Absender, Empfänger und Embeddings wurden getrennt geprüft\n\nDer Zusatzlauf vergleicht reine Absenderhistorie, reine Empfängerhistorie (`To` und halb gewichtetes `Cc`), alle Teilnehmer (`From`, `To`, `Cc`) und richtungsabhängige Korrespondenzpartner. Empfängerinformationen liegen bei 97,6 % und mindestens eine Teilnehmeradresse bei 97,7 % der 8.000 Nachrichten vor. Häufige Adressen, die in vielen Ordnern auftauchen, werden abgewertet. Eigene Adressen werden nur aus dem älteren Trainingsanteil abgeleitet.\n\nBGE-M3 nutzt Betreff plus Vorschau und greift nur ein, wenn die Teilnehmerhistorie nicht ausreichend eindeutig ist. Das Modell lief lokal über Ollama; weder Nachrichtentexte noch Vektoren wurden an einen externen Dienst übertragen."
+      },
+      {
+        "id": "limitations",
+        "type": "markdown",
+        "sourceId": "benchmark-run",
+        "body": "## Der Befund ist belastbar genug für Vorschläge, nicht für Auto-Ablage\n\n**Datenvollständigkeit:** Der Stalwart-Erstindex war beim Snapshot noch nicht abgeschlossen. 68 Ordner mit zusammen 234 Nachrichten waren zu klein für diesen Lauf.\n\n**Textabdeckung:** 60 Nachrichten hatten keinen Betreff, 40 keine Vorschau und 338 keinen Absender. Der Test nutzte die Vorschau statt des vollständigen bereinigten Mailtexts.\n\n**Schwellenauswahl:** Die 0,5-, 0,7- und 0,9-Gates wurden auf demselben Testsatz verglichen. Der Vorsprung der 0,5-Schwelle muss deshalb auf einem getrennten Validierungssatz bestätigt werden.\n\n**Eigene Adressen:** Eine konfigurierte und drei aus dem Trainingsanteil abgeleitete eigene Identitäten wurden erkannt. Diese Inferenz sollte vor Produktivbetrieb durch explizit konfigurierte eigene Adressen ersetzt werden.\n\n**Robustheitschecks:** Alle 8.000 Provider-IDs waren eindeutig, Training plus Test plus ausgeschlossene Sparse-Nachrichten summieren sich exakt auf den Snapshot, und Top-1 lag in jeder Variante unter Top-3."
+      },
+      {
+        "id": "next-steps",
+        "type": "markdown",
+        "body": "## Empfohlene nächste Schritte\n\n1. Den produktiven Klassifikator auf Teilnehmerhistorie aus `From`, `To` und `Cc` umstellen; `Cc` schwächer gewichten und ordnerübergreifend häufige Adressen abwerten.\n2. BGE-M3 als Rückfall verwenden, wenn die Adresshistorie nicht eindeutig genug ist.\n3. Alle eigenen Mailadressen explizit im Archivkonto konfigurieren, statt sie dauerhaft zu erraten.\n4. Nach Abschluss des Erstindex einen festen Trainings-, Validierungs- und Testsatz erzeugen.\n5. Bis zur erneuten Validierung drei Vorschläge anzeigen und die Verschiebung bestätigen lassen."
+      },
+      {
+        "id": "questions",
+        "type": "markdown",
+        "body": "## Offene Fragen\n\n- Welche expliziten eigenen Absenderadressen gehören zum Archivkonto?\n- Welche Vertrauensschwelle liefert genügend Vorschläge bei mindestens gewünschter Präzision?\n- Wie behandeln wir neue oder sehr kleine Ordner, für die noch kein stabiles Profil existiert?\n- Wie viel zusätzlichen Gewinn bringen vollständiger bereinigter Mailtext sowie eindeutige Mietvertrags- und Wohnungsbezüge aus ERPNext?"
+      }
+    ],
+    "charts": [
+      {
+        "id": "benchmark-chart",
+        "title": "Top-1 und Top-3 nach Ablagemethode",
+        "subtitle": "1.367 spätere Testmails aus neuen Threads; Anteil mit richtigem Ordner.",
+        "type": "bar",
+        "dataset": "benchmark_chart",
+        "sourceId": "benchmark-run",
+        "valueFormat": "percent",
+        "layout": "full",
+        "encodings": {
+          "x": {"field": "method", "type": "ordinal", "label": "Ablagemethode"},
+          "y": {"field": "value", "type": "quantitative", "label": "Trefferquote", "format": "percent"},
+          "color": {"field": "metric", "type": "nominal", "label": "Kennzahl"}
+        }
+      }
+    ],
+    "cards": [
+      {
+        "id": "best-top1",
+        "dataset": "headline",
+        "sourceId": "benchmark-run",
+        "description": "Erster Vorschlag stimmt, neue Threads, Teilnehmer-Gate 0,5 mit BGE-M3-Rückfall.",
+        "metrics": [{"label": "Top-1 neue Threads", "field": "top1", "format": "percent"}]
+      },
+      {
+        "id": "best-top3",
+        "dataset": "headline",
+        "sourceId": "benchmark-run",
+        "description": "Richtiger Ordner unter den ersten drei Vorschlägen.",
+        "metrics": [{"label": "Top-3 neue Threads", "field": "top3", "format": "percent"}]
+      },
+      {
+        "id": "new-thread-tests",
+        "dataset": "headline",
+        "sourceId": "benchmark-run",
+        "description": "Testmails ohne einen bereits im Training bekannten Thread.",
+        "metrics": [{"label": "Testmails neue Threads", "field": "new_thread_tests", "format": "number"}]
+      },
+      {
+        "id": "eligible-folders",
+        "dataset": "headline",
+        "sourceId": "benchmark-run",
+        "description": "Ordner mit mindestens acht indexierten Nachrichten.",
+        "metrics": [{"label": "Bewertete Ordner", "field": "eligible_folders", "format": "number"}]
+      }
+    ],
+    "tables": [
+      {
+        "id": "benchmark-table",
+        "title": "Methodenvergleich auf neuen Threads",
+        "subtitle": "1.367 Testmails, 173 im Testsatz vertretene Ordner; Trefferquoten als Anteil.",
+        "showDescription": true,
+        "dataset": "benchmark_results",
+        "sourceId": "benchmark-run",
+        "density": "spacious",
+        "layout": "full",
+        "defaultSort": {"field": "top1", "direction": "desc"},
+        "columns": [
+          {"field": "model", "label": "Modell", "type": "text"},
+          {"field": "method", "label": "Methode", "type": "text"},
+          {"field": "text", "label": "Text", "type": "text"},
+          {"field": "top1", "label": "Top-1", "format": "percent"},
+          {"field": "top3", "label": "Top-3", "format": "percent"},
+          {"field": "macro_top1", "label": "Macro Top-1", "format": "percent"},
+          {"field": "ms_per_message", "label": "Embedding ms/Mail", "format": "number"}
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "id": "benchmark-run",
+        "label": "Lokaler ERPNext/Stalwart-Backtest vom 24. August 2026",
+        "query": {
+          "engine": "Frappe Python + MariaDB + Ollama",
+          "language": "Python",
+          "query": "thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.evaluation.run_benchmark(account_name='Stalwart Test Archiv')",
+          "sql": "SELECT name, provider_message_id, thread_id, subject, sender_email, participants, received_at, preview, actual_mailbox_id, actual_folder_path FROM `tabMail Archive Message` WHERE archive_account = 'Stalwart Test Archiv' AND status = 'Archiviert' AND actual_mailbox_id <> '' ORDER BY received_at ASC, name ASC",
+          "description": "Zeitlicher, ordnerweiser Backtest von Absender-, Empfänger-, Teilnehmer- und Embedding-Signalen.",
+          "executed_at": "2026-08-24T20:05:00+02:00",
+          "tables_used": ["frontend.tabMail Archive Message", "frontend.tabMail Archive Folder", "frontend.tabMail Archive Account"],
+          "filters": ["status = Archiviert", "genau ein tatsächlicher Zielordner", "mindestens 8 Nachrichten pro Ordner", "ältere 80 % Training, jüngere 20 % Test"],
+          "metric_definitions": ["Top-1 = erster Vorschlag entspricht dem gespeicherten Ordner", "Top-3 = gespeicherter Ordner ist unter den ersten drei Vorschlägen", "Macro Top-1 = ungewichteter Mittelwert der Top-1-Trefferquote je Ordner"]
+        }
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "generatedAt": "2026-08-24T20:05:00+02:00",
+    "status": "partial",
+    "accessIssues": [
+      {
+        "id": "initial-sync-incomplete",
+        "scope": "Stalwart-Archiv",
+        "sourceId": "benchmark-run",
+        "message": "Der Stalwart-Erstindex war beim Snapshot noch nicht abgeschlossen; Ergebnisse sind vorläufig."
+      }
+    ],
+    "datasets": {
+      "headline": [
+        {"top1": 0.7396, "top3": 0.8171, "new_thread_tests": 1367, "eligible_folders": 177}
+      ],
+      "benchmark_results": [
+        {"model": "BGE-M3", "method": "Teilnehmer-Gate 0,5 → Zentroid", "text": "Von/An/Cc + Betreff + Vorschau", "top1": 0.7396, "top3": 0.8171, "macro_top1": 0.7003, "ms_per_message": 5.445},
+        {"model": "BGE-M3", "method": "Korrespondenz-Gate 0,5 → Zentroid", "text": "Richtung + Betreff + Vorschau", "top1": 0.7388, "top3": 0.8347, "macro_top1": 0.7051, "ms_per_message": 5.445},
+        {"model": "Regeln", "method": "Teilnehmerhistorie mit IDF", "text": "Von/An/Cc", "top1": 0.7052, "top3": 0.7696, "macro_top1": 0.6361, "ms_per_message": 0.0},
+        {"model": "Regeln", "method": "Korrespondenzpartner mit IDF", "text": "Richtungsabhängige Adressen", "top1": 0.6832, "top3": 0.7454, "macro_top1": 0.6207, "ms_per_message": 0.0},
+        {"model": "Regeln", "method": "Empfängerhistorie mit IDF", "text": "An/Cc", "top1": 0.4023, "top3": 0.4726, "macro_top1": 0.3071, "ms_per_message": 0.0},
+        {"model": "BGE-M3", "method": "Sender-Gate 0,7 → Zentroid", "text": "Betreff + Vorschau", "top1": 0.5457, "top3": 0.6759, "macro_top1": 0.5193, "ms_per_message": 5.292},
+        {"model": "BGE-M3", "method": "Sender-Gate 0,5 → Zentroid", "text": "Betreff + Vorschau", "top1": 0.5421, "top3": 0.6832, "macro_top1": 0.5168, "ms_per_message": 5.292},
+        {"model": "Regeln", "method": "Absender-Mehrheit", "text": "Metadaten", "top1": 0.3899, "top3": 0.4492, "macro_top1": 0.3385, "ms_per_message": 0.0},
+        {"model": "BGE-M3", "method": "Ordner-Zentroid", "text": "Betreff + Vorschau", "top1": 0.3475, "top3": 0.5062, "macro_top1": 0.3341, "ms_per_message": 5.292},
+        {"model": "BGE-M3", "method": "gewichtete 7 Nachbarn", "text": "Betreff + Vorschau", "top1": 0.2999, "top3": 0.4301, "macro_top1": 0.2903, "ms_per_message": 5.292},
+        {"model": "Qwen3 Embedding 0.6B", "method": "Ordner-Zentroid", "text": "Betreff + Vorschau", "top1": 0.2612, "top3": 0.4301, "macro_top1": 0.2713, "ms_per_message": 10.26},
+        {"model": "BGE-M3", "method": "Ordner-Zentroid", "text": "nur Betreff", "top1": 0.2238, "top3": 0.3233, "macro_top1": 0.2605, "ms_per_message": 4.886},
+        {"model": "Nomic Embed Text", "method": "Ordner-Zentroid", "text": "Betreff + Vorschau", "top1": 0.1149, "top3": 0.1939, "macro_top1": 0.123, "ms_per_message": 5.995}
+      ],
+      "benchmark_chart": [
+        {"method": "Teilnehmer + BGE", "metric": "Top-1", "value": 0.7396, "model": "BGE-M3", "text": "Von/An/Cc + Betreff + Vorschau", "macro_top1": 0.7003},
+        {"method": "Teilnehmer + BGE", "metric": "Top-3", "value": 0.8171, "model": "BGE-M3", "text": "Von/An/Cc + Betreff + Vorschau", "macro_top1": 0.7003},
+        {"method": "Teilnehmer", "metric": "Top-1", "value": 0.7052, "model": "Regeln", "text": "Von/An/Cc", "macro_top1": 0.6361},
+        {"method": "Teilnehmer", "metric": "Top-3", "value": 0.7696, "model": "Regeln", "text": "Von/An/Cc", "macro_top1": 0.6361},
+        {"method": "Empfänger", "metric": "Top-1", "value": 0.4023, "model": "Regeln", "text": "An/Cc", "macro_top1": 0.3071},
+        {"method": "Empfänger", "metric": "Top-3", "value": 0.4726, "model": "Regeln", "text": "An/Cc", "macro_top1": 0.3071},
+        {"method": "Gate 0,7", "metric": "Top-1", "value": 0.5457, "model": "BGE-M3", "text": "Betreff + Vorschau", "macro_top1": 0.5193},
+        {"method": "Gate 0,7", "metric": "Top-3", "value": 0.6759, "model": "BGE-M3", "text": "Betreff + Vorschau", "macro_top1": 0.5193},
+        {"method": "Absender", "metric": "Top-1", "value": 0.3899, "model": "Regeln", "text": "Metadaten", "macro_top1": 0.3385},
+        {"method": "Absender", "metric": "Top-3", "value": 0.4492, "model": "Regeln", "text": "Metadaten", "macro_top1": 0.3385},
+        {"method": "BGE-Zentroid", "metric": "Top-1", "value": 0.3475, "model": "BGE-M3", "text": "Betreff + Vorschau", "macro_top1": 0.3341},
+        {"method": "BGE-Zentroid", "metric": "Top-3", "value": 0.5062, "model": "BGE-M3", "text": "Betreff + Vorschau", "macro_top1": 0.3341}
+      ]
+    }
+  },
+  "sources": [
+    {
+      "id": "benchmark-run",
+      "label": "Lokaler ERPNext/Stalwart-Backtest vom 24. August 2026",
+      "query": {
+        "engine": "Frappe Python + MariaDB + Ollama",
+        "language": "Python",
+        "query": "thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.evaluation.run_benchmark(account_name='Stalwart Test Archiv')",
+        "sql": "SELECT name, provider_message_id, thread_id, subject, sender_email, participants, received_at, preview, actual_mailbox_id, actual_folder_path FROM `tabMail Archive Message` WHERE archive_account = 'Stalwart Test Archiv' AND status = 'Archiviert' AND actual_mailbox_id <> '' ORDER BY received_at ASC, name ASC",
+        "description": "Zeitlicher, ordnerweiser Backtest von Absender-, Empfänger-, Teilnehmer- und Embedding-Signalen.",
+        "executed_at": "2026-08-24T20:05:00+02:00",
+        "tables_used": ["frontend.tabMail Archive Message", "frontend.tabMail Archive Folder", "frontend.tabMail Archive Account"],
+        "filters": ["status = Archiviert", "genau ein tatsächlicher Zielordner", "mindestens 8 Nachrichten pro Ordner", "ältere 80 % Training, jüngere 20 % Test"],
+        "metric_definitions": ["Top-1 = erster Vorschlag entspricht dem gespeicherten Ordner", "Top-3 = gespeicherter Ordner ist unter den ersten drei Vorschlägen", "Macro Top-1 = ungewichteter Mittelwert der Top-1-Trefferquote je Ordner"]
+      }
+    }
+  ]
+}

@@ -14,6 +14,37 @@ from .providers import get_provider
 from .sync import sync_folder_records, upsert_messages
 
 
+def _normalize_rfc_message_id(value: Any) -> str:
+	result = str(value or "").strip()
+	if len(result) >= 2 and result.startswith("<") and result.endswith(">"):
+		result = result[1:-1].strip()
+	return result
+
+
+def _find_indexed_message_doc(account_name: str, rfc_message_id: str) -> Any | None:
+	value = _normalize_rfc_message_id(rfc_message_id)
+	if not value:
+		return None
+	# JMAP exposes Message-ID without angle brackets on some imported messages while
+	# Thunderbird may include them. Accept both persisted representations.
+	matches = frappe.get_all(
+		"Mail Archive Message",
+		filters={
+			"archive_account": account_name,
+			"rfc_message_id": ["in", [value, f"<{value}>"]],
+		},
+		fields=["name"],
+		order_by="received_at desc, name asc",
+		limit_page_length=2,
+	)
+	if len(matches) > 1:
+		frappe.throw(
+			_("Die RFC Message-ID ist im ERPNext-Archivindex nicht eindeutig."),
+			frappe.ValidationError,
+		)
+	return frappe.get_doc("Mail Archive Message", matches[0].name) if matches else None
+
+
 def _select_account(account_addresses: Any = None) -> Any:
 	if isinstance(account_addresses, str):
 		try:
@@ -50,25 +81,27 @@ def _select_account(account_addresses: Any = None) -> Any:
 def get_filing_suggestions(
 	header_message_id: str, account_addresses: Any = None, limit: int = 3
 ) -> dict[str, Any]:
-	value = str(header_message_id or "").strip()
+	value = _normalize_rfc_message_id(header_message_id)
 	if not value:
 		frappe.throw(_("Die Nachricht hat keine RFC Message-ID und kann nicht eindeutig zugeordnet werden."))
 	account = _select_account(account_addresses)
-	provider = get_provider(account)
-	message = provider.find_message_by_rfc_id(value)
-	if not message:
-		frappe.throw(_("Die Nachricht wurde auf dem konfigurierten Mailserver nicht gefunden."))
-	mailboxes = provider.list_mailboxes()
-	folder_context = sync_folder_records(account, mailboxes)
-	upsert_messages(account, [message], folder_context["folders"], embedding_optional=True)
-	message_doc = frappe.get_doc(
-		"Mail Archive Message",
-		frappe.db.get_value(
+	message_doc = _find_indexed_message_doc(account.name, value)
+	if not message_doc:
+		provider = get_provider(account)
+		message = provider.find_message_by_rfc_id(value)
+		if not message:
+			frappe.throw(_("Die Nachricht wurde auf dem konfigurierten Mailserver nicht gefunden."))
+		mailboxes = provider.list_mailboxes()
+		folder_context = sync_folder_records(account, mailboxes)
+		upsert_messages(account, [message], folder_context["folders"], embedding_optional=True)
+		message_doc = frappe.get_doc(
 			"Mail Archive Message",
-			{"archive_account": account.name, "provider_message_id": message.id},
-			"name",
-		),
-	)
+			frappe.db.get_value(
+				"Mail Archive Message",
+				{"archive_account": account.name, "provider_message_id": message.id},
+				"name",
+			),
+		)
 	result = create_suggestion(account, message_doc, limit=limit)
 	result["available_folders"] = frappe.get_all(
 		"Mail Archive Folder",

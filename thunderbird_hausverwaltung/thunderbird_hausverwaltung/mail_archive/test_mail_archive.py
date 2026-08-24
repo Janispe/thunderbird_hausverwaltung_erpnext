@@ -2,17 +2,53 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from unittest import TestCase
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from ..doctype.mail_archive_account.mail_archive_account import normalize_account_addresses
 from .classifier import _matches_business_context
 from .embeddings import clean_message_text, cosine_similarity, normalize_vector
+from .evaluation import (
+	_address_history_rankings,
+	_embedding_text,
+	_infer_own_addresses,
+	_participant_addresses,
+	_participant_coverage,
+	_sender_gate_rankings,
+	_split_rows,
+)
+from .filing import _find_indexed_message_doc, _normalize_rfc_message_id
 from .providers.base import ArchiveMailbox, ArchiveMessage
 from .providers.jmap import JMAPConfig, JMAPProvider
 from .sync import _mailbox_truth, build_mailbox_paths, folder_record_name, message_record_name
 
 
 class TestMailArchive(TestCase):
+	def test_rfc_message_id_normalization_accepts_thunderbird_and_jmap_forms(self) -> None:
+		self.assertEqual(_normalize_rfc_message_id(" <mail@example.test> "), "mail@example.test")
+		self.assertEqual(_normalize_rfc_message_id("mail@example.test"), "mail@example.test")
+
+	@patch("thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.filing.frappe.get_doc")
+	@patch("thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.filing.frappe.get_all")
+	def test_indexed_message_lookup_uses_normalized_id_before_jmap(
+		self, get_all: Mock, get_doc: Mock
+	) -> None:
+		document = SimpleNamespace(name="MAM-1")
+		get_all.return_value = [SimpleNamespace(name="MAM-1")]
+		get_doc.return_value = document
+
+		self.assertIs(_find_indexed_message_doc("Archiv", "<mail@example.test>"), document)
+		get_all.assert_called_once_with(
+			"Mail Archive Message",
+			filters={
+				"archive_account": "Archiv",
+				"rfc_message_id": ["in", ["mail@example.test", "<mail@example.test>"]],
+			},
+			fields=["name"],
+			order_by="received_at desc, name asc",
+			limit_page_length=2,
+		)
+		get_doc.assert_called_once_with("Mail Archive Message", "MAM-1")
+
 	def test_account_addresses_are_normalized_and_deduplicated(self) -> None:
 		self.assertEqual(
 			normalize_account_addresses(" Archiv@Example.de\narchiv@example.de;team@example.de "),
@@ -152,3 +188,106 @@ class TestMailArchive(TestCase):
 				SimpleNamespace(reference_doctype="Customer", reference_name="C-MV-2"), context
 			)
 		)
+
+	def test_evaluation_split_is_chronological_per_folder_and_excludes_sparse_folders(self) -> None:
+		rows = [
+			SimpleNamespace(name=f"A-{index}", actual_mailbox_id="A", received_at=index, thread_id="")
+			for index in range(10)
+		]
+		rows.extend(
+			SimpleNamespace(name=f"B-{index}", actual_mailbox_id="B", received_at=index, thread_id="")
+			for index in range(3)
+		)
+		train, test, info = _split_rows(rows, min_messages_per_folder=8, test_fraction=0.2)
+		self.assertEqual([row.name for row in train], [f"A-{index}" for index in range(8)])
+		self.assertEqual([row.name for row in test], ["A-8", "A-9"])
+		self.assertEqual(info["excluded_sparse_messages"], 3)
+
+	def test_evaluation_embedding_variants_keep_full_and_cleaned_body_separate(self) -> None:
+		row = SimpleNamespace(
+			subject="Neue Abrechnung",
+			preview="Kurze Vorschau",
+			full_text="Neuer Inhalt\n\nAm 1. Januar schrieb Person:\nAlter zitierter Inhalt",
+		)
+		self.assertIn("Kurze Vorschau", _embedding_text(row, "subject_preview"))
+		self.assertNotIn("Alter zitierter Inhalt", _embedding_text(row, "subject_clean_text"))
+		self.assertIn("Alter zitierter Inhalt", _embedding_text(row, "subject_full_text"))
+
+	def test_sender_gate_uses_only_a_reliable_sender_history(self) -> None:
+		train = [
+			SimpleNamespace(sender_email="stable@example.test", actual_mailbox_id="A"),
+			SimpleNamespace(sender_email="stable@example.test", actual_mailbox_id="A"),
+			SimpleNamespace(sender_email="mixed@example.test", actual_mailbox_id="A"),
+			SimpleNamespace(sender_email="mixed@example.test", actual_mailbox_id="B"),
+		]
+		test = [
+			SimpleNamespace(sender_email="stable@example.test"),
+			SimpleNamespace(sender_email="mixed@example.test"),
+		]
+		self.assertEqual(
+			_sender_gate_rankings([["B", "A"], ["C", "A", "B"]], train, test, min_count=2, min_purity=0.7),
+			[["A", "B"], ["C", "A", "B"]],
+		)
+
+	def test_participant_addresses_parse_jmap_json_and_fall_back_to_sender(self) -> None:
+		row = SimpleNamespace(
+			participants='{"from":[{"email":"FROM@EXAMPLE.TEST"}],"to":[{"email":"to@example.test"}],"cc":[]}',
+			sender_email="ignored@example.test",
+		)
+		self.assertEqual(
+			_participant_addresses(row),
+			{
+				"from": ("from@example.test",),
+				"to": ("to@example.test",),
+				"cc": (),
+			},
+		)
+		fallback = SimpleNamespace(participants="", sender_email="Fallback@Example.test")
+		self.assertEqual(_participant_addresses(fallback)["from"], ("fallback@example.test",))
+		self.assertEqual(_participant_coverage([row, fallback])["recipient_coverage"], 0.5)
+
+	def test_recipient_history_can_identify_a_folder(self) -> None:
+		def row(label: str, recipient: str) -> SimpleNamespace:
+			return SimpleNamespace(
+				actual_mailbox_id=label,
+				participants={"from": [], "to": [{"email": recipient}], "cc": []},
+				sender_email="",
+			)
+
+		train = [row("A", "a@example.test"), row("A", "a@example.test"), row("B", "b@example.test")]
+		self.assertEqual(
+			_address_history_rankings(train, [row("?", "a@example.test")], mode="recipient")[0][0],
+			"A",
+		)
+
+	def test_own_addresses_are_inferred_only_from_broad_two_way_history(self) -> None:
+		train = []
+		for index in range(50):
+			folder = f"F-{index % 10}"
+			outbound_external = f"outbound-{index}@example.test"
+			inbound_external = f"inbound-{index}@example.test"
+			train.append(
+				SimpleNamespace(
+					actual_mailbox_id=folder,
+					participants={
+						"from": [{"email": "own@example.test"}],
+						"to": [{"email": outbound_external}],
+						"cc": [],
+					},
+					sender_email="own@example.test",
+				)
+			)
+			train.append(
+				SimpleNamespace(
+					actual_mailbox_id=folder,
+					participants={
+						"from": [{"email": inbound_external}],
+						"to": [{"email": "own@example.test"}],
+						"cc": [],
+					},
+					sender_email=inbound_external,
+				)
+			)
+		own, diagnostics = _infer_own_addresses(train, max_inferred=1)
+		self.assertEqual(own, {"own@example.test"})
+		self.assertEqual(diagnostics["inferred_own_addresses"], 1)
