@@ -29,9 +29,23 @@ from .providers.base import ArchiveMailbox, ArchiveMessage
 from .providers.jmap import JMAPConfig, JMAPProvider
 from .sync import _mailbox_truth, build_mailbox_paths, folder_record_name, message_record_name
 from .source_sync import IMAPSourceClient, parse_imap_message, source_message_record_name
+from .tagging import contract_tag_label
 
 
 class TestMailArchive(TestCase):
+	def test_contract_tag_label_omits_property_but_keeps_unit_date_and_tenant(self) -> None:
+		self.assertEqual(
+			contract_tag_label(
+				"Gropiusstr. 5 · HH · 1.OG links · seit 01.05.2019 — Raucci Nicolo",
+				"MV-1",
+			),
+			"MV · HH · 1.OG links · seit 01.05.2019 — Raucci Nicolo",
+		)
+
+	def test_contract_tag_label_keeps_legacy_titles_without_property_separator(self) -> None:
+		self.assertEqual(contract_tag_label("Müller", "MV-1"), "MV · Müller")
+		self.assertEqual(contract_tag_label(None, "MV-1"), "MV · MV-1")
+
 	def test_rfc_message_id_normalization_accepts_thunderbird_and_jmap_forms(self) -> None:
 		self.assertEqual(_normalize_rfc_message_id(" <mail@example.test> "), "mail@example.test")
 		self.assertEqual(_normalize_rfc_message_id("mail@example.test"), "mail@example.test")

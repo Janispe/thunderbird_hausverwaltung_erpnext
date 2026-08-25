@@ -37,6 +37,14 @@ def is_managed_contract_keyword(keyword: str) -> bool:
 	return str(keyword or "").casefold().startswith(CONTRACT_KEY_PREFIX)
 
 
+def contract_tag_label(bezeichnung: str | None, fallback: str) -> str:
+	"""Keep contract tags compact because the property already has its own tag."""
+	title = str(bezeichnung or fallback or "").strip()
+	if " · " in title:
+		_title_property, title = title.split(" · ", 1)
+	return f"MV · {title}"
+
+
 # Compatibility for callers that used the original property-only helper.
 is_managed_keyword = is_managed_property_keyword
 
@@ -97,7 +105,7 @@ def _contract_tag_definitions() -> list[dict[str, str]]:
 	return [
 		{
 			"key": contract_keyword(str(row.name)),
-			"tag": f"MV · {str(row.bezeichnung or row.name)}",
+			"tag": contract_tag_label(row.bezeichnung, str(row.name)),
 			"color": colors.get(properties.get(str(row.immobilie or ""), ""), "#6E7781"),
 		}
 		for row in frappe.get_all(
