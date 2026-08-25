@@ -1,0 +1,533 @@
+{
+  "account": "Stalwart Test Archiv",
+  "model": "snowflake-arctic-embed2",
+  "method": "participant-gate-0.5-then-centroid",
+  "text_variant": "subject_full_text",
+  "indexed_messages": 17087,
+  "usable_full_text_messages": 4503,
+  "train_messages": 3480,
+  "test_messages": 876,
+  "new_thread_test_messages": 785,
+  "embedding_input_max_characters": 6000,
+  "embedding_seconds": 105.48,
+  "embedding_ms_per_message": 24.215,
+  "embedding_fallbacks": 0,
+  "full_text_profile": {
+    "source": "thunderbird-local-cache",
+    "requested_messages": 17087,
+    "fetched_messages": 4548,
+    "missing_messages": 12539,
+    "nonempty_full_text": 4503,
+    "empty_full_text": 12584,
+    "jmap_truncated_messages": 0,
+    "median_characters": 1135,
+    "p95_characters": 4927,
+    "max_characters": 20083449
+  },
+  "own_address_diagnostics": {
+    "configured_own_addresses": 1,
+    "inferred_own_addresses": 3,
+    "own_address_candidates": 3
+  },
+  "split": {
+    "eligible_folders": 107,
+    "excluded_sparse_messages": 147,
+    "new_thread_test_messages": 785
+  },
+  "overall": {
+    "n": 785,
+    "top1": 0.6828,
+    "top3": 0.8255,
+    "top1_errors": 249,
+    "top3_misses": 137
+  },
+  "segments": {
+    "attachment": {
+      "mit Anhang": {
+        "n": 329,
+        "top1": 0.6565,
+        "top3": 0.8328,
+        "top1_errors": 113,
+        "top3_misses": 55
+      },
+      "ohne Anhang": {
+        "n": 456,
+        "top1": 0.7018,
+        "top3": 0.8202,
+        "top1_errors": 136,
+        "top3_misses": 82
+      }
+    },
+    "direction": {
+      "ausgehend": {
+        "n": 245,
+        "top1": 0.7224,
+        "top3": 0.8286,
+        "top1_errors": 68,
+        "top3_misses": 42
+      },
+      "eingehend": {
+        "n": 488,
+        "top1": 0.6701,
+        "top3": 0.8258,
+        "top1_errors": 161,
+        "top3_misses": 85
+      },
+      "unbekannt": {
+        "n": 52,
+        "top1": 0.6154,
+        "top3": 0.8077,
+        "top1_errors": 20,
+        "top3_misses": 10
+      }
+    },
+    "body_length": {
+      "1.001–4.000 Zeichen": {
+        "n": 339,
+        "top1": 0.7168,
+        "top3": 0.8643,
+        "top1_errors": 96,
+        "top3_misses": 46
+      },
+      "251–1.000 Zeichen": {
+        "n": 300,
+        "top1": 0.6667,
+        "top3": 0.8167,
+        "top1_errors": 100,
+        "top3_misses": 55
+      },
+      "4.001–6.000 Zeichen": {
+        "n": 40,
+        "top1": 0.675,
+        "top3": 0.775,
+        "top1_errors": 13,
+        "top3_misses": 9
+      },
+      ">6.000 Zeichen (gekürzt)": {
+        "n": 25,
+        "top1": 0.52,
+        "top3": 0.68,
+        "top1_errors": 12,
+        "top3_misses": 8
+      },
+      "≤250 Zeichen": {
+        "n": 81,
+        "top1": 0.6543,
+        "top3": 0.7654,
+        "top1_errors": 28,
+        "top3_misses": 19
+      }
+    },
+    "folder_train_size": {
+      "11–25 Trainingsmails": {
+        "n": 113,
+        "top1": 0.7434,
+        "top3": 0.8142,
+        "top1_errors": 29,
+        "top3_misses": 21
+      },
+      "26–100 Trainingsmails": {
+        "n": 444,
+        "top1": 0.6577,
+        "top3": 0.8243,
+        "top1_errors": 152,
+        "top3_misses": 78
+      },
+      "6–10 Trainingsmails": {
+        "n": 34,
+        "top1": 0.7647,
+        "top3": 0.8824,
+        "top1_errors": 8,
+        "top3_misses": 4
+      },
+      ">100 Trainingsmails": {
+        "n": 194,
+        "top1": 0.6907,
+        "top3": 0.8247,
+        "top1_errors": 60,
+        "top3_misses": 34
+      }
+    },
+    "semantic_margin": {
+      "0,01–0,03": {
+        "n": 226,
+        "top1": 0.6062,
+        "top3": 0.7788,
+        "top1_errors": 89,
+        "top3_misses": 50
+      },
+      "0,03–0,07": {
+        "n": 195,
+        "top1": 0.7077,
+        "top3": 0.8564,
+        "top1_errors": 57,
+        "top3_misses": 28
+      },
+      "<0,01 (sehr unsicher)": {
+        "n": 194,
+        "top1": 0.6031,
+        "top3": 0.768,
+        "top1_errors": 77,
+        "top3_misses": 45
+      },
+      "≥0,07 (klarer Abstand)": {
+        "n": 170,
+        "top1": 0.8471,
+        "top3": 0.9176,
+        "top1_errors": 26,
+        "top3_misses": 14
+      }
+    },
+    "participant_history": {
+      "Gate greift": {
+        "n": 532,
+        "top1": 0.7876,
+        "top3": 0.8966,
+        "top1_errors": 113,
+        "top3_misses": 55
+      },
+      "Keine Historie": {
+        "n": 125,
+        "top1": 0.448,
+        "top3": 0.592,
+        "top1_errors": 69,
+        "top3_misses": 51
+      },
+      "Zu unsicher": {
+        "n": 128,
+        "top1": 0.4766,
+        "top3": 0.7578,
+        "top1_errors": 67,
+        "top3_misses": 31
+      }
+    },
+    "target_kind": {
+      "Fachlicher Archivordner": {
+        "n": 774,
+        "top1": 0.6873,
+        "top3": 0.832,
+        "top1_errors": 242,
+        "top3_misses": 130
+      },
+      "Systemähnlicher Altordner": {
+        "n": 11,
+        "top1": 0.3636,
+        "top3": 0.3636,
+        "top1_errors": 7,
+        "top3_misses": 7
+      }
+    },
+    "folder_depth": {
+      "1–2 Ebenen": {
+        "n": 21,
+        "top1": 0.3333,
+        "top3": 0.5238,
+        "top1_errors": 14,
+        "top3_misses": 10
+      },
+      "3 Ebenen": {
+        "n": 113,
+        "top1": 0.6106,
+        "top3": 0.7434,
+        "top1_errors": 44,
+        "top3_misses": 29
+      },
+      "4 Ebenen": {
+        "n": 194,
+        "top1": 0.634,
+        "top3": 0.7835,
+        "top1_errors": 71,
+        "top3_misses": 42
+      },
+      "≥5 Ebenen": {
+        "n": 457,
+        "top1": 0.7374,
+        "top3": 0.8775,
+        "top1_errors": 120,
+        "top3_misses": 56
+      }
+    },
+    "hierarchy_relation": {
+      "Vorschlag ist ein Unterordner des tatsächlichen Ordners": {
+        "n": 35,
+        "top1": 0.0,
+        "top3": 0.4857,
+        "top1_errors": 35,
+        "top3_misses": 18
+      },
+      "Vorschlag ist ein übergeordneter Ordner": {
+        "n": 11,
+        "top1": 0.0,
+        "top3": 0.4545,
+        "top1_errors": 11,
+        "top3_misses": 6
+      },
+      "anderer Hauptzweig": {
+        "n": 19,
+        "top1": 0.0,
+        "top3": 0.3684,
+        "top1_errors": 19,
+        "top3_misses": 12
+      },
+      "benachbarter Ordner mit gleichem Elternordner": {
+        "n": 64,
+        "top1": 0.0,
+        "top3": 0.5938,
+        "top1_errors": 64,
+        "top3_misses": 26
+      },
+      "gleicher Hauptzweig": {
+        "n": 120,
+        "top1": 0.0,
+        "top3": 0.375,
+        "top1_errors": 120,
+        "top3_misses": 75
+      }
+    },
+    "overlapping_flags": {
+      "Anhang mit wenig Begleittext": {
+        "n": 118,
+        "top1": 0.6271,
+        "top3": 0.7797,
+        "top1_errors": 44,
+        "top3_misses": 26
+      },
+      "Antwortbetreff": {
+        "n": 237,
+        "top1": 0.7679,
+        "top3": 0.903,
+        "top1_errors": 55,
+        "top3_misses": 23
+      },
+      "Keine bekannte Teilnehmerhistorie": {
+        "n": 125,
+        "top1": 0.448,
+        "top3": 0.592,
+        "top1_errors": 69,
+        "top3_misses": 51
+      },
+      "Ohne Betreff": {
+        "n": 3,
+        "top1": 0.0,
+        "top3": 1.0,
+        "top1_errors": 3,
+        "top3_misses": 0
+      },
+      "Sehr kleiner Zielordner": {
+        "n": 34,
+        "top1": 0.7647,
+        "top3": 0.8824,
+        "top1_errors": 8,
+        "top3_misses": 4
+      },
+      "Sehr kurzer Text": {
+        "n": 81,
+        "top1": 0.6543,
+        "top3": 0.7654,
+        "top1_errors": 28,
+        "top3_misses": 19
+      },
+      "Text oberhalb der 6.000-Zeichen-Grenze": {
+        "n": 25,
+        "top1": 0.52,
+        "top3": 0.68,
+        "top1_errors": 12,
+        "top3_misses": 8
+      },
+      "Weiterleitungsbetreff": {
+        "n": 55,
+        "top1": 0.5818,
+        "top3": 0.7091,
+        "top1_errors": 23,
+        "top3_misses": 16
+      },
+      "Überwiegend Zitat/Signatur": {
+        "n": 142,
+        "top1": 0.6901,
+        "top3": 0.7817,
+        "top1_errors": 44,
+        "top3_misses": 31
+      }
+    }
+  },
+  "participant_gate": {
+    "helped_top1": 222,
+    "harmed_top1": 19,
+    "semantic_only": {
+      "n": 785,
+      "top1": 0.4242,
+      "top3": 0.8255,
+      "top1_errors": 452,
+      "top3_misses": 137
+    }
+  },
+  "top_confusions_anonymized": [
+    {
+      "actual": "Ordner-789547fa",
+      "predicted": "Ordner-5788902e",
+      "count": 13
+    },
+    {
+      "actual": "Ordner-2dbd9afb",
+      "predicted": "Ordner-8438925a",
+      "count": 11
+    },
+    {
+      "actual": "Ordner-673f693c",
+      "predicted": "Ordner-173d9426",
+      "count": 9
+    },
+    {
+      "actual": "Ordner-de324609",
+      "predicted": "Ordner-81b232b4",
+      "count": 8
+    },
+    {
+      "actual": "Ordner-8f112213",
+      "predicted": "Ordner-91154e3d",
+      "count": 6
+    },
+    {
+      "actual": "Ordner-d5787cd3",
+      "predicted": "Ordner-216df3c9",
+      "count": 6
+    },
+    {
+      "actual": "Ordner-44ba554e",
+      "predicted": "Ordner-3f975b26",
+      "count": 5
+    },
+    {
+      "actual": "Ordner-d5787cd3",
+      "predicted": "Ordner-ac65d5f8",
+      "count": 5
+    },
+    {
+      "actual": "Ordner-a0e500e9",
+      "predicted": "Ordner-733027d2",
+      "count": 4
+    },
+    {
+      "actual": "Ordner-66f09da9",
+      "predicted": "Ordner-ac65d5f8",
+      "count": 4
+    },
+    {
+      "actual": "Ordner-25d516f3",
+      "predicted": "Ordner-df4f4518",
+      "count": 4
+    },
+    {
+      "actual": "Ordner-df4f4518",
+      "predicted": "Ordner-4003bb01",
+      "count": 4
+    },
+    {
+      "actual": "Ordner-6065aa3f",
+      "predicted": "Ordner-673f693c",
+      "count": 4
+    },
+    {
+      "actual": "Ordner-ac65d5f8",
+      "predicted": "Ordner-216df3c9",
+      "count": 4
+    },
+    {
+      "actual": "Ordner-8f112213",
+      "predicted": "Ordner-ac65d5f8",
+      "count": 3
+    }
+  ],
+  "hardest_folders_anonymized": [
+    {
+      "folder": "Ordner-2dbd9afb",
+      "test_messages": 11,
+      "top1": 0.0,
+      "top1_errors": 11
+    },
+    {
+      "folder": "Ordner-918e0d8e",
+      "test_messages": 3,
+      "top1": 0.0,
+      "top1_errors": 3
+    },
+    {
+      "folder": "Ordner-a2dc011c",
+      "test_messages": 9,
+      "top1": 0.1111,
+      "top1_errors": 8
+    },
+    {
+      "folder": "Ordner-d5787cd3",
+      "test_messages": 27,
+      "top1": 0.1852,
+      "top1_errors": 22
+    },
+    {
+      "folder": "Ordner-789547fa",
+      "test_messages": 16,
+      "top1": 0.1875,
+      "top1_errors": 13
+    },
+    {
+      "folder": "Ordner-0da6a307",
+      "test_messages": 5,
+      "top1": 0.2,
+      "top1_errors": 4
+    },
+    {
+      "folder": "Ordner-de324609",
+      "test_messages": 14,
+      "top1": 0.2143,
+      "top1_errors": 11
+    },
+    {
+      "folder": "Ordner-66f09da9",
+      "test_messages": 9,
+      "top1": 0.2222,
+      "top1_errors": 7
+    },
+    {
+      "folder": "Ordner-6065aa3f",
+      "test_messages": 12,
+      "top1": 0.25,
+      "top1_errors": 9
+    },
+    {
+      "folder": "Ordner-740b4df1",
+      "test_messages": 4,
+      "top1": 0.25,
+      "top1_errors": 3
+    },
+    {
+      "folder": "Ordner-ec6aded5",
+      "test_messages": 10,
+      "top1": 0.3,
+      "top1_errors": 7
+    },
+    {
+      "folder": "Ordner-ac65d5f8",
+      "test_messages": 9,
+      "top1": 0.3333,
+      "top1_errors": 6
+    },
+    {
+      "folder": "Ordner-dc5f8eff",
+      "test_messages": 9,
+      "top1": 0.3333,
+      "top1_errors": 6
+    },
+    {
+      "folder": "Ordner-42d720f3",
+      "test_messages": 6,
+      "top1": 0.3333,
+      "top1_errors": 4
+    },
+    {
+      "folder": "Ordner-a14f9f4e",
+      "test_messages": 3,
+      "top1": 0.3333,
+      "top1_errors": 2
+    }
+  ]
+}

@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 from ..doctype.mail_archive_account.mail_archive_account import normalize_account_addresses
 from .classifier import _matches_business_context
 from .embeddings import clean_message_text, cosine_similarity, normalize_vector
+from .error_diagnostics import SYSTEM_LIKE_FOLDER_RE, _folder_token, _path_parts, _segment
 from .evaluation import (
 	_address_history_rankings,
 	_embed,
@@ -333,3 +334,28 @@ class TestMailArchive(TestCase):
 		own, diagnostics = _infer_own_addresses(train, max_inferred=1)
 		self.assertEqual(own, {"own@example.test"})
 		self.assertEqual(diagnostics["inferred_own_addresses"], 1)
+
+	def test_error_diagnostics_anonymize_folders_and_split_hierarchies(self) -> None:
+		self.assertRegex(_folder_token("private-mailbox-id"), r"^Ordner-[0-9a-f]{8}$")
+		self.assertNotIn("private", _folder_token("private-mailbox-id"))
+		self.assertEqual(
+			_path_parts("Archiv\\Objekt/Vertrag"),
+			("archiv", "objekt", "vertrag"),
+		)
+
+	def test_error_diagnostics_identify_legacy_system_folders(self) -> None:
+		self.assertIsNotNone(SYSTEM_LIKE_FOLDER_RE.search("Archiv/Trash/Entwürfe"))
+		self.assertIsNotNone(SYSTEM_LIKE_FOLDER_RE.search("Archiv/Posteingang"))
+		self.assertIsNone(SYSTEM_LIKE_FOLDER_RE.search("Archiv/Objekte/Hauptstraße"))
+
+	def test_error_diagnostic_segment_counts_hits_and_misses(self) -> None:
+		self.assertEqual(
+			_segment(
+				[
+					{"top1": 1, "top3": 1},
+					{"top1": 0, "top3": 1},
+					{"top1": 0, "top3": 0},
+				]
+			),
+			{"n": 3, "top1": 0.3333, "top3": 0.6667, "top1_errors": 2, "top3_misses": 1},
+		)
