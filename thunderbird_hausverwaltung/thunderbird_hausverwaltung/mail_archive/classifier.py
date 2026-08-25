@@ -139,25 +139,62 @@ def _unique_contract_context(sender_email: str, received_at: Any) -> dict[str, s
 	}
 
 
-def _matches_business_context(folder: Any, context: dict[str, str] | None) -> bool:
-	if not context or not folder.reference_doctype or not folder.reference_name:
+def _effective_folder_reference(
+	folder: Any, folders_by_mailbox_id: dict[str, Any] | None = None
+) -> tuple[str, str]:
+	"""Return the nearest explicit ERP reference in the mailbox ancestry.
+
+	A tenant's root mailbox owns the contract reference. Descendants inherit it, while an
+	explicit reference on a descendant remains an intentional override.
+	"""
+	reference_doctype = str(getattr(folder, "reference_doctype", "") or "")
+	reference_name = str(getattr(folder, "reference_name", "") or "")
+	if reference_doctype and reference_name:
+		return reference_doctype, reference_name
+	if not folders_by_mailbox_id:
+		return "", ""
+
+	visited = {str(getattr(folder, "provider_mailbox_id", "") or "")}
+	parent_mailbox_id = str(getattr(folder, "parent_mailbox_id", "") or "")
+	while parent_mailbox_id and parent_mailbox_id not in visited:
+		visited.add(parent_mailbox_id)
+		parent = folders_by_mailbox_id.get(parent_mailbox_id)
+		if not parent:
+			break
+		reference_doctype = str(getattr(parent, "reference_doctype", "") or "")
+		reference_name = str(getattr(parent, "reference_name", "") or "")
+		if reference_doctype and reference_name:
+			return reference_doctype, reference_name
+		parent_mailbox_id = str(getattr(parent, "parent_mailbox_id", "") or "")
+	return "", ""
+
+
+def _matches_business_context(
+	folder: Any,
+	context: dict[str, str] | None,
+	folders_by_mailbox_id: dict[str, Any] | None = None,
+) -> bool:
+	reference_doctype, reference_name = _effective_folder_reference(folder, folders_by_mailbox_id)
+	if not context or not reference_doctype or not reference_name:
 		return False
 	return bool(
-		(folder.reference_doctype == "Mietvertrag" and folder.reference_name == context["mietvertrag"])
-		or (folder.reference_doctype == "Wohnung" and folder.reference_name == context["wohnung"])
-		or (folder.reference_doctype == "Customer" and folder.reference_name == context["customer"])
+		(reference_doctype == "Mietvertrag" and reference_name == context["mietvertrag"])
+		or (reference_doctype == "Wohnung" and reference_name == context["wohnung"])
+		or (reference_doctype == "Customer" and reference_name == context["customer"])
 	)
 
 
 def build_suggestions(account: Any, message_doc: Any, limit: int = 3) -> dict[str, Any]:
 	message_vector = parse_vector(message_doc.embedding)
-	folders = frappe.get_all(
+	all_folders = frappe.get_all(
 		"Mail Archive Folder",
-		filters={"archive_account": account.name, "selectable_target": 1},
+		filters={"archive_account": account.name},
 		fields=[
 			"name",
 			"provider_mailbox_id",
+			"parent_mailbox_id",
 			"folder_path",
+			"selectable_target",
 			"sample_count",
 			"embedding_model",
 			"centroid_embedding",
@@ -166,6 +203,10 @@ def build_suggestions(account: Any, message_doc: Any, limit: int = 3) -> dict[st
 		],
 		order_by="folder_path asc",
 	)
+	folders_by_mailbox_id = {
+		str(folder.provider_mailbox_id): folder for folder in all_folders if folder.provider_mailbox_id
+	}
+	folders = [folder for folder in all_folders if folder.selectable_target]
 	thread_counts = _folder_counts(account.name, "thread_id", message_doc.thread_id, message_doc.name)
 	sender_counts = _folder_counts(account.name, "sender_email", message_doc.sender_email, message_doc.name)
 	thread_total = sum(thread_counts.values())
@@ -185,7 +226,8 @@ def build_suggestions(account: Any, message_doc: Any, limit: int = 3) -> dict[st
 			semantic = max(cosine_similarity(message_vector, centroid), 0.0)
 		thread_prior = thread_counts[folder.provider_mailbox_id] / thread_total if thread_total else 0.0
 		sender_prior = sender_counts[folder.provider_mailbox_id] / sender_total if sender_total else 0.0
-		business_match = _matches_business_context(folder, business_context)
+		reference_doctype, reference_name = _effective_folder_reference(folder, folders_by_mailbox_id)
+		business_match = _matches_business_context(folder, business_context, folders_by_mailbox_id)
 		if thread_unambiguous and thread_prior:
 			score = 0.92 + 0.08 * semantic
 		elif business_match:
@@ -205,8 +247,8 @@ def build_suggestions(account: Any, message_doc: Any, limit: int = 3) -> dict[st
 			reasons.append(f"{round(semantic * 100)} % semantische Ähnlichkeit zum Ordnerprofil")
 		if business_match:
 			reasons.append(f"eindeutiger Mietvertrag {business_context['mietvertrag']} zum Nachrichtendatum")
-		if folder.reference_doctype and folder.reference_name:
-			reasons.append(f"zugeordnet zu {folder.reference_doctype} {folder.reference_name}")
+		if reference_doctype and reference_name:
+			reasons.append(f"zugeordnet zu {reference_doctype} {reference_name}")
 		if not reasons and not folder.sample_count:
 			continue
 		candidates.append(
@@ -218,8 +260,8 @@ def build_suggestions(account: Any, message_doc: Any, limit: int = 3) -> dict[st
 				"confidence": round(max(min(score, 1.0), 0.0) * 100, 1),
 				"reason": "; ".join(reasons),
 				"reference": (
-					{"doctype": folder.reference_doctype, "name": folder.reference_name}
-					if folder.reference_doctype and folder.reference_name
+					{"doctype": reference_doctype, "name": reference_name}
+					if reference_doctype and reference_name
 					else None
 				),
 				"samples": int(folder.sample_count or 0),
