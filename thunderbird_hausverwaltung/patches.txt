@@ -1,1 +1,1 @@
-
+thunderbird_hausverwaltung.patches.v1_0.reset_contract_tag_sync

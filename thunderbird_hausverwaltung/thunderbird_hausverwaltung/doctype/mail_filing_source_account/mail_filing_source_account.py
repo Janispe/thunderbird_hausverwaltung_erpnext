@@ -70,6 +70,8 @@ class MailFilingSourceAccount(Document):
 			self.db_set(
 				{
 					"sync_cursor": "",
+					"tag_sync_completed": 0,
+					"tag_sync_cursor": "",
 					"sync_status": "Noch nicht synchronisiert",
 					"last_error": "",
 				},
@@ -95,9 +97,23 @@ class MailFilingSourceAccount(Document):
 	def reset_sync(self) -> dict:
 		self.check_permission("write")
 		self.db_set(
-			{"sync_cursor": "", "sync_status": "Noch nicht synchronisiert", "last_error": ""},
+			{
+				"sync_cursor": "",
+				"tag_sync_completed": 0,
+				"tag_sync_cursor": "",
+				"sync_status": "Noch nicht synchronisiert",
+				"last_error": "",
+			},
 			update_modified=False,
 		)
+		from ...mail_archive.source_sync import enqueue_source_account_sync
+
+		return enqueue_source_account_sync(self.name)
+
+	@frappe.whitelist()
+	def rebuild_tags(self) -> dict:
+		self.check_permission("write")
+		self.db_set({"tag_sync_completed": 0, "tag_sync_cursor": ""}, update_modified=False)
 		from ...mail_archive.source_sync import enqueue_source_account_sync
 
 		return enqueue_source_account_sync(self.name)

@@ -28,6 +28,7 @@ from .embeddings import (
 from .filing import _normalize_rfc_message_id
 from .providers.base import ArchiveMessage
 from .sync import _message_date
+from .tagging import TagContext, apply_contract_tags, build_tag_context
 
 
 MAX_SOURCE_BODY_CHARACTERS = 64_000
@@ -93,7 +94,9 @@ def _received_at(message: EmailMessage) -> str | None:
 		return None
 
 
-def parse_imap_message(raw_message: bytes, *, uid: str, folder: str) -> ArchiveMessage:
+def parse_imap_message(
+	raw_message: bytes, *, uid: str, folder: str, keywords: tuple[str, ...] = ()
+) -> ArchiveMessage:
 	parsed = BytesParser(policy=policy.default).parsebytes(raw_message)
 	sender = _addresses(parsed.get_all("From", []))
 	to = _addresses(parsed.get_all("To", []))
@@ -105,6 +108,7 @@ def parse_imap_message(raw_message: bytes, *, uid: str, folder: str) -> ArchiveM
 		id=str(uid),
 		thread_id="",
 		mailbox_ids=(folder,),
+		keywords=tuple(str(keyword).casefold() for keyword in keywords),
 		rfc_message_ids=(rfc_message_id,) if rfc_message_id else (),
 		in_reply_to=tuple(
 			filter(None, (_normalize_rfc_message_id(item) for item in parsed.get_all("In-Reply-To", [])))
@@ -198,9 +202,9 @@ class IMAPSourceClient:
 			),
 		}
 
-	def select_folder(self, folder: str) -> str:
+	def select_folder(self, folder: str, *, readonly: bool = False) -> str:
 		connection = self._require_connection()
-		status, _data = connection.select(folder, readonly=True)
+		status, _data = connection.select(folder, readonly=readonly)
 		if status != "OK":
 			raise RuntimeError(f"IMAP-Ordner nicht gefunden: {folder}")
 		_response_name, response_values = connection.response("UIDVALIDITY")
@@ -216,7 +220,7 @@ class IMAPSourceClient:
 		return [item.decode() for item in (data[0] or b"").split()]
 
 	def fetch_message(self, uid: str, folder: str) -> ArchiveMessage:
-		status, data = self._require_connection().uid("fetch", str(uid), "(RFC822)")
+		status, data = self._require_connection().uid("fetch", str(uid), "(UID FLAGS BODY.PEEK[])")
 		if status != "OK":
 			raise RuntimeError(f"IMAP-Nachricht {uid} konnte nicht geladen werden.")
 		raw_message = next(
@@ -225,7 +229,39 @@ class IMAPSourceClient:
 		)
 		if not raw_message:
 			raise RuntimeError(f"IMAP-Nachricht {uid} enthielt keinen Nachrichtentext.")
-		return parse_imap_message(raw_message, uid=str(uid), folder=folder)
+		metadata = next(
+			(item[0] for item in data if isinstance(item, tuple) and item),
+			b"",
+		)
+		if isinstance(metadata, str):
+			metadata = metadata.encode()
+		match = re.search(rb"\bFLAGS\s+\(([^)]*)\)", metadata or b"", re.IGNORECASE)
+		keywords = tuple(
+			item.decode(errors="replace") for item in ((match.group(1) if match else b"").split()) if item
+		)
+		return parse_imap_message(raw_message, uid=str(uid), folder=folder, keywords=keywords)
+
+	def patch_keywords(self, updates: dict[str, dict[str, bool | None]]) -> None:
+		connection = self._require_connection()
+		for uid, changes in updates.items():
+			for keyword, enabled in changes.items():
+				value = str(keyword or "").strip().casefold()
+				if not re.fullmatch(r"[a-z0-9$._-]+", value):
+					raise RuntimeError(f"Ungültiges IMAP-Schlüsselwort: {keyword}")
+				operation = "+FLAGS.SILENT" if enabled else "-FLAGS.SILENT"
+				status, data = connection.uid("store", str(uid), operation, f"({value})")
+				if status != "OK":
+					detail = next(
+						(
+							item.decode(errors="replace") if isinstance(item, bytes) else str(item)
+							for item in data or []
+							if item
+						),
+						"Unbekannter Fehler",
+					)
+					raise RuntimeError(
+						f"IMAP-Schlüsselwort {value} konnte für UID {uid} nicht gespeichert werden: {detail}"
+					)
 
 
 def _participants(message: ArchiveMessage) -> str:
@@ -331,6 +367,53 @@ def _cursor(value: str | None) -> dict[str, Any]:
 	return decoded if isinstance(decoded, dict) else {"folders": {}}
 
 
+def backfill_source_tags(
+	source_account: Any,
+	client: IMAPSourceClient,
+	context: TagContext,
+) -> dict[str, Any]:
+	state = _cursor(getattr(source_account, "tag_sync_cursor", ""))
+	folder_state = state.setdefault("folders", {})
+	completed = set(state.get("completed") or [])
+	processed = 0
+	updated = 0
+	limit = max(int(source_account.max_messages_per_run or 500), 1)
+	folders = normalize_watched_folders(source_account.watched_folders)
+	for folder in folders:
+		if folder in completed or processed >= limit:
+			continue
+		uidvalidity = client.select_folder(folder)
+		current = folder_state.get(folder) or {}
+		last_uid = int(current.get("last_uid") or 0) if current.get("uidvalidity") == uidvalidity else 0
+		uids = sorted((int(uid) for uid in client.search_uids("ALL") if int(uid) > last_uid))
+		batch_uids = uids[: limit - processed]
+		messages = [client.fetch_message(str(uid), folder) for uid in batch_uids]
+		if messages:
+			summary = apply_contract_tags(client, messages, context)
+			updated += int(summary["updated"])
+			processed += len(messages)
+			last_uid = batch_uids[-1]
+		folder_state[folder] = {"uidvalidity": uidvalidity, "last_uid": last_uid}
+		if len(batch_uids) == len(uids):
+			completed.add(folder)
+	finished = set(folders).issubset(completed)
+	source_account.db_set(
+		{
+			"tag_sync_completed": int(finished),
+			"tag_sync_cursor": ""
+			if finished
+			else json.dumps(
+				{"folders": folder_state, "completed": sorted(completed)},
+				ensure_ascii=False,
+				separators=(",", ":"),
+			),
+			"last_tag_sync_on": now_datetime(),
+		},
+		update_modified=False,
+	)
+	return {"scanned": processed, "updated": updated, "completed": finished}
+
+
 def sync_source_account(account_name: str) -> dict[str, Any]:
 	source_account = frappe.get_doc("Mail Filing Source Account", account_name)
 	if not source_account.enabled:
@@ -340,6 +423,8 @@ def sync_source_account(account_name: str) -> dict[str, Any]:
 	state = _cursor(source_account.sync_cursor)
 	folder_state = state.setdefault("folders", {})
 	stored = 0
+	tag_context = build_tag_context()
+	tag_summary: dict[str, Any] = {"completed": bool(getattr(source_account, "tag_sync_completed", 0))}
 	try:
 		with IMAPSourceClient.from_account(source_account) as client:
 			for folder in normalize_watched_folders(source_account.watched_folders):
@@ -354,6 +439,7 @@ def sync_source_account(account_name: str) -> dict[str, Any]:
 				remaining = int(source_account.max_messages_per_run) - stored
 				for uid in uids[:remaining]:
 					message = client.fetch_message(uid, folder)
+					apply_contract_tags(client, [message], tag_context)
 					upsert_source_message(
 						source_account,
 						archive_account,
@@ -364,6 +450,8 @@ def sync_source_account(account_name: str) -> dict[str, Any]:
 					last_uid = max(last_uid, int(uid))
 					stored += 1
 				folder_state[folder] = {"uidvalidity": uidvalidity, "last_uid": last_uid}
+			if not getattr(source_account, "tag_sync_completed", 0):
+				tag_summary = backfill_source_tags(source_account, client, tag_context)
 		source_account.db_set(
 			{
 				"sync_cursor": json.dumps(state, ensure_ascii=False, separators=(",", ":")),
@@ -373,7 +461,7 @@ def sync_source_account(account_name: str) -> dict[str, Any]:
 			},
 			update_modified=False,
 		)
-		return {"status": "success", "stored": stored}
+		return {"status": "success", "stored": stored, "tags": tag_summary}
 	except Exception as exc:
 		frappe.db.rollback()
 		source_account = frappe.get_doc("Mail Filing Source Account", account_name)
@@ -392,6 +480,7 @@ def sync_source_message_by_rfc_id(account_name: str, rfc_message_id: str) -> Any
 		return None
 	matches: list[tuple[str, str, str]] = []
 	with IMAPSourceClient.from_account(source_account) as client:
+		tag_context = build_tag_context()
 		for folder in normalize_watched_folders(source_account.watched_folders):
 			uidvalidity = client.select_folder(folder)
 			escaped = value.replace("\\", "\\\\").replace('"', '\\"')
@@ -407,6 +496,7 @@ def sync_source_message_by_rfc_id(account_name: str, rfc_message_id: str) -> Any
 		folder, uidvalidity, uid = matches[0]
 		client.select_folder(folder)
 		message = client.fetch_message(uid, folder)
+		apply_contract_tags(client, [message], tag_context)
 		return upsert_source_message(
 			source_account,
 			archive_account,

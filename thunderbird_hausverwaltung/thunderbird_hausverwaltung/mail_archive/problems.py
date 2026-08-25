@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from collections import Counter, defaultdict
 from typing import Any
@@ -11,6 +12,7 @@ from hausverwaltung.hausverwaltung.doctype.hausverwaltung_problem.hausverwaltung
 )
 
 from ..setup import backfill_known_property_folders, classify_existing_structure_folders
+from .tagging import ambiguous_contract_addresses, build_tag_context
 
 PROBLEM_SOURCE = "Mail-Archiv"
 OLD_TENANT_FOLDER_RE = re.compile(r"^00[- ]*alte mieter$", re.IGNORECASE)
@@ -135,12 +137,39 @@ def check_archive_problems() -> dict[str, Any]:
 		],
 		limit_page_length=0,
 	)
-	property_roots = {
-		str(row.name): str(row.parent_immobilie or row.name) for row in all_properties
-	}
+	property_roots = {str(row.name): str(row.parent_immobilie or row.name) for row in all_properties}
 	properties = [row for row in all_properties if not row.parent_immobilie]
 
 	findings: list[dict[str, Any]] = []
+	if not frappe.db.exists("Mail Filing Source Account", {"enabled": 1}):
+		findings.append(
+			_finding(
+				key="source-account:ionos-missing",
+				title="IONOS-Postfach für automatische Mietvertragstags fehlt",
+				problem_type="IONOS-Quellpostfach fehlt",
+				description=(
+					"Richten Sie ein aktives Mail Filing Source Account für das IONOS-Postfach ein. "
+					"Ohne IMAP-Zugang kann ERPNext dort keine Mietvertragstags setzen."
+				),
+				severity="Kritisch",
+			)
+		)
+	for address, contract_names in ambiguous_contract_addresses(build_tag_context()).items():
+		address_key = hashlib.sha256(address.encode()).hexdigest()[:16]
+		findings.append(
+			_finding(
+				key=f"tenant-email:{address_key}:ambiguous-contracts",
+				title=f"Mieter-E-Mail-Adresse ist mehrdeutig: {address}",
+				problem_type="Mieter-E-Mail-Adresse mehreren Mietverträgen zugeordnet",
+				description=(
+					"Die E-Mail-Adresse ist im selben Zeitraum mehreren Mietverträgen zugeordnet. "
+					"ERPNext setzt deshalb ohne eindeutigen Mieterordner keinen Mietvertragstag."
+				),
+				reference_doctype="Mietvertrag",
+				reference_name=contract_names[0],
+				details={"email_address": address, "contracts": list(contract_names)},
+			)
+		)
 	folder_usage: dict[str, list[tuple[str, str]]] = defaultdict(list)
 	for immobilie in properties:
 		for fieldname, role in (

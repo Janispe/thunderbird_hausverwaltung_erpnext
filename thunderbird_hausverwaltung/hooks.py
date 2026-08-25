@@ -51,6 +51,14 @@ doc_events = {
 			"thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.tagging.invalidate_tag_sync",
 		],
 	},
+	"Contact": {
+		"on_update": "thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.tagging.invalidate_tag_sync",
+		"on_trash": "thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.tagging.invalidate_tag_sync",
+	},
+	"Customer": {
+		"on_update": "thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.tagging.invalidate_tag_sync",
+		"on_trash": "thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.tagging.invalidate_tag_sync",
+	},
 	"Mail Archive Folder": {
 		"on_update": [
 			"thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.problems.enqueue_archive_problem_check",
@@ -80,11 +88,11 @@ scheduler_events = {
 	"cron": {
 		"*/5 * * * *": [
 			"thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.source_sync.enqueue_enabled_source_account_syncs",
+			"thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.sync.enqueue_enabled_account_syncs",
 		],
 	},
 	"hourly": [
 		"thunderbird_hausverwaltung.thunderbird_hausverwaltung.integrations.thunderbird_bridge.cleanup_commands",
-		"thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.sync.enqueue_enabled_account_syncs",
 	],
 	"daily": [
 		"thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.problems.check_archive_problems",

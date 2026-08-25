@@ -28,7 +28,7 @@ from .filing import (
 from .providers.base import ArchiveMailbox, ArchiveMessage
 from .providers.jmap import JMAPConfig, JMAPProvider
 from .sync import _mailbox_truth, build_mailbox_paths, folder_record_name, message_record_name
-from .source_sync import parse_imap_message, source_message_record_name
+from .source_sync import IMAPSourceClient, parse_imap_message, source_message_record_name
 
 
 class TestMailArchive(TestCase):
@@ -109,6 +109,21 @@ class TestMailArchive(TestCase):
 		self.assertTrue(message.has_attachment)
 		self.assertEqual(message.raw["attachment_count"], 1)
 		self.assertEqual(message.raw["attachment_names"], ["kuendigung.pdf"])
+
+	def test_imap_contract_keywords_are_written_without_touching_other_flags(self) -> None:
+		client = IMAPSourceClient(SimpleNamespace())
+		client.connection = Mock()
+		client.connection.uid.return_value = ("OK", [b"stored"])
+
+		client.patch_keywords({"42": {"hv-mietvertrag-1234": True, "hv-mietvertrag-alt": None}})
+
+		self.assertEqual(
+			client.connection.uid.call_args_list,
+			[
+				(("store", "42", "+FLAGS.SILENT", "(hv-mietvertrag-1234)"), {}),
+				(("store", "42", "-FLAGS.SILENT", "(hv-mietvertrag-alt)"), {}),
+			],
+		)
 
 	@patch("thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.filing.frappe.get_doc")
 	@patch("thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.filing.frappe.get_all")
@@ -239,9 +254,7 @@ class TestMailArchive(TestCase):
 		}
 		provider._single = Mock(return_value={"updated": {"E1": None}})
 
-		provider.patch_keywords(
-			{"E1": {"hv-keine-immobilie": None, "hv-immobilie-1": True}}
-		)
+		provider.patch_keywords({"E1": {"hv-keine-immobilie": None, "hv-immobilie-1": True}})
 
 		provider._single.assert_called_once_with(
 			"Email/set",

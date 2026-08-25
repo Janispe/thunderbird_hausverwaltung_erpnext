@@ -14,6 +14,10 @@ frappe.ui.form.on("Mail Filing Source Account", {
 			await frm.call("sync_now");
 			frappe.show_alert(__("Synchronisierung wurde eingereiht."));
 		}, __("Quellpostfach"));
+		frm.add_custom_button(__("Mietvertragstags neu aufbauen"), async () => {
+			await frm.call("rebuild_tags");
+			frappe.show_alert(__("Die Schlagwort-Synchronisierung wurde eingereiht."));
+		}, __("Quellpostfach"));
 		frm.add_custom_button(__("Cursor zurücksetzen"), async () => {
 			await frm.call("reset_sync");
 			frappe.show_alert(__("Vollständige Synchronisierung wurde eingereiht."));
