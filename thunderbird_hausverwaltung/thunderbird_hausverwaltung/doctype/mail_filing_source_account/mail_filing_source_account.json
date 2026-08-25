@@ -25,7 +25,7 @@
   {"fieldname":"username","fieldtype":"Data","label":"Benutzername","reqd":1},
   {"fieldname":"password","fieldtype":"Password","label":"Passwort oder App-Passwort","reqd":1},
   {"fieldname":"mapping_section","fieldtype":"Section Break","label":"Zuordnung"},
-  {"description":"E-Mail-Adressen, die Thunderbird für dieses IONOS-Konto meldet; eine pro Zeile.","fieldname":"email_addresses","fieldtype":"Small Text","label":"Quelladressen","reqd":1},
+  {"description":"Eigene aktuelle und frühere E-Mail-Adressen dieses IONOS-Kontos, eine pro Zeile. Sie werden nicht als unbekannte Mieteradressen gemeldet.","fieldname":"email_addresses","fieldtype":"Small Text","label":"Quelladressen","reqd":1},
   {"default":"INBOX","description":"IMAP-Ordner, die auf Ablagevorschläge und Mietvertragstags geprüft werden; für vollständige Kennzeichnung auch den IONOS-Ordner für gesendete Nachrichten eintragen.","fieldname":"watched_folders","fieldtype":"Small Text","label":"Überwachte Ordner","reqd":1},
   {"fieldname":"sync_section","fieldtype":"Section Break","label":"Synchronisierung"},
   {"default":"500","description":"Maximale Anzahl neuer Nachrichten pro Lauf.","fieldname":"max_messages_per_run","fieldtype":"Int","label":"Max. Nachrichten je Lauf"},

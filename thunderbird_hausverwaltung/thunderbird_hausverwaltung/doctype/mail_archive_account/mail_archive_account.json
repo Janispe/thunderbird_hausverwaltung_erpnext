@@ -26,7 +26,7 @@
   {"default":"1","description":"Nur für lokale Entwicklung mit selbstsignierten Zertifikaten ausschalten.","fieldname":"verify_ssl","fieldtype":"Check","label":"TLS-Zertifikat prüfen"},
   {"default":"30","fieldname":"request_timeout","fieldtype":"Int","label":"Timeout (Sekunden)"},
   {"fieldname":"mapping_section","fieldtype":"Section Break","label":"Kontozuordnung"},
-  {"description":"Eigene E-Mail-Adressen dieses Kontos, eine pro Zeile. Dient zur eindeutigen Zuordnung aus Thunderbird.","fieldname":"email_addresses","fieldtype":"Small Text","label":"E-Mail-Adressen","reqd":1},
+  {"description":"Eigene aktuelle und frühere E-Mail-Adressen, eine pro Zeile. Sie werden nicht als unbekannte Mieteradressen gemeldet und dienen zur eindeutigen Zuordnung aus Thunderbird.","fieldname":"email_addresses","fieldtype":"Small Text","label":"E-Mail-Adressen","reqd":1},
   {"description":"Leer lassen, um das primäre JMAP-Mailkonto zu verwenden.","fieldname":"provider_account_id","fieldtype":"Data","label":"JMAP Account-ID"},
   {"description":"Optional: Nur benutzerdefinierte Ordner unterhalb dieser stabilen JMAP Mailbox-ID als Ablageziele verwenden.","fieldname":"archive_root_mailbox_id","fieldtype":"Data","label":"Archiv-Wurzel (Mailbox-ID)"},
   {"fieldname":"embedding_section","fieldtype":"Section Break","label":"Embeddings"},

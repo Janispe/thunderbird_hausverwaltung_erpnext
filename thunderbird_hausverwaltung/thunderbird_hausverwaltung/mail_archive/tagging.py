@@ -186,7 +186,7 @@ def _normalize_email(value: Any) -> str:
 	if not raw:
 		return ""
 	parsed = parseaddr(raw)[1] or raw
-	return parsed.strip().casefold()
+	return parsed.strip().strip("\"'<>").casefold()
 
 
 def _message_day(value: Any) -> date | None:

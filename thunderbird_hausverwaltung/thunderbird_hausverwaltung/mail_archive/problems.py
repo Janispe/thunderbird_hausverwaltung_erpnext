@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from collections import Counter, defaultdict
 from typing import Any
@@ -12,7 +13,7 @@ from hausverwaltung.hausverwaltung.doctype.hausverwaltung_problem.hausverwaltung
 )
 
 from ..setup import backfill_known_property_folders, classify_existing_structure_folders
-from .tagging import ambiguous_contract_addresses, build_tag_context
+from .tagging import _normalize_email, ambiguous_contract_addresses, build_tag_context
 
 PROBLEM_SOURCE = "Mail-Archiv"
 OLD_TENANT_FOLDER_RE = re.compile(r"^00[- ]*alte mieter$", re.IGNORECASE)
@@ -68,6 +69,103 @@ def _finding(
 		"secondary_name": secondary_name,
 		"details": details or {},
 	}
+
+
+def _message_participant_addresses(message: Any) -> set[str]:
+	participants = message.get("participants") if hasattr(message, "get") else None
+	if isinstance(participants, str):
+		try:
+			participants = json.loads(participants)
+		except (TypeError, ValueError):
+			participants = {}
+	if not isinstance(participants, dict):
+		participants = {}
+
+	addresses: set[str] = set()
+	for role in ("from", "to", "cc"):
+		for participant in participants.get(role) or []:
+			value = participant.get("email") if isinstance(participant, dict) else participant
+			if address := _normalize_email(value):
+				addresses.add(address)
+	if not addresses:
+		sender = message.get("sender_email") if hasattr(message, "get") else None
+		if address := _normalize_email(sender):
+			addresses.add(address)
+	return addresses
+
+
+def _unassigned_tenant_address_findings(
+	messages: list[Any],
+	*,
+	contract_by_mailbox: dict[tuple[str, str], str],
+	known_tenant_addresses: set[str],
+	own_addresses: set[str],
+) -> list[dict[str, Any]]:
+	by_address: dict[str, dict[str, Any]] = {}
+	for message in messages:
+		account = str(message.get("archive_account") or "")
+		mailbox_id = str(message.get("actual_mailbox_id") or "")
+		contract = contract_by_mailbox.get((account, mailbox_id), "")
+		if not contract:
+			continue
+		for address in sorted(_message_participant_addresses(message)):
+			if address in known_tenant_addresses or address in own_addresses:
+				continue
+			entry = by_address.setdefault(
+				address,
+				{
+					"count": 0,
+					"contracts": set(),
+					"folders": set(),
+					"examples": [],
+					"first_message": str(message.get("name") or ""),
+				},
+			)
+			entry["count"] += 1
+			entry["contracts"].add(contract)
+			if folder_path := str(message.get("actual_folder_path") or ""):
+				entry["folders"].add(folder_path)
+			if len(entry["examples"]) < 10:
+				entry["examples"].append(
+					{
+						"message": str(message.get("name") or ""),
+						"subject": str(message.get("subject") or ""),
+						"folder": str(message.get("actual_folder_path") or ""),
+					}
+				)
+
+	findings: list[dict[str, Any]] = []
+	for address, entry in sorted(by_address.items()):
+		contracts = sorted(entry["contracts"])
+		folders = sorted(entry["folders"])
+		count = int(entry["count"])
+		address_key = hashlib.sha256(address.encode()).hexdigest()[:16]
+		findings.append(
+			_finding(
+				key=f"tenant-email:{address_key}:unassigned",
+				title=f"E-Mail-Adresse keinem Mieter zugeordnet: {address}",
+				problem_type="E-Mail-Adresse keinem Mieter zugeordnet",
+				description=(
+					f"Die E-Mail-Adresse {address} kommt in {count} Nachricht(en) innerhalb von "
+					f"{len(folders)} zugeordneten Mieterordner(n) vor, ist in ERPNext aber keinem "
+					"Vertragspartner eines Mietvertrags zugeordnet. Ordnen Sie die Adresse dem passenden "
+					"Kontakt zu oder setzen Sie dieses Problem auf Akzeptiert, wenn die Adresse nicht zu "
+					"einem Mieter gehört."
+				),
+				reference_doctype="Mail Archive Message" if entry["first_message"] else "",
+				reference_name=entry["first_message"],
+				secondary_doctype="Mietvertrag" if contracts else "",
+				secondary_name=contracts[0] if contracts else "",
+				details={
+					"email_address": address,
+					"message_count": count,
+					"contracts": contracts,
+					"folders": folders,
+					"examples": entry["examples"],
+				},
+			)
+		)
+	return findings
 
 
 def _missing_property_folder_finding(immobilie: str, *, tenant_root: bool) -> dict[str, Any]:
@@ -154,7 +252,8 @@ def check_archive_problems() -> dict[str, Any]:
 				severity="Kritisch",
 			)
 		)
-	for address, contract_names in ambiguous_contract_addresses(build_tag_context()).items():
+	global_tag_context = build_tag_context()
+	for address, contract_names in ambiguous_contract_addresses(global_tag_context).items():
 		address_key = hashlib.sha256(address.encode()).hexdigest()[:16]
 		findings.append(
 			_finding(
@@ -168,6 +267,54 @@ def check_archive_problems() -> dict[str, Any]:
 				reference_doctype="Mietvertrag",
 				reference_name=contract_names[0],
 				details={"email_address": address, "contracts": list(contract_names)},
+			)
+		)
+
+	enabled_accounts = set(
+		frappe.get_all(
+			"Mail Archive Account", filters={"enabled": 1}, pluck="name", limit_page_length=0
+		)
+	)
+	contract_by_mailbox: dict[tuple[str, str], str] = {}
+	for account_name in sorted(enabled_accounts):
+		account_context = build_tag_context(str(account_name))
+		for mailbox_id, contract_name in account_context.contract_by_mailbox.items():
+			if not contract_name:
+				continue
+			contract_by_mailbox[(str(account_name), str(mailbox_id))] = contract_name
+	if contract_by_mailbox:
+		messages = frappe.get_all(
+			"Mail Archive Message",
+			filters={
+				"status": ["!=", "Gelöscht"],
+				"actual_mailbox_id": [
+					"in",
+					sorted({mailbox_id for _account, mailbox_id in contract_by_mailbox}),
+				],
+			},
+			fields=[
+				"name",
+				"archive_account",
+				"actual_mailbox_id",
+				"actual_folder_path",
+				"subject",
+				"sender_email",
+				"participants",
+			],
+			order_by="received_at desc, name asc",
+			limit_page_length=0,
+		)
+		messages = [
+			message
+			for message in messages
+			if (str(message.archive_account), str(message.actual_mailbox_id)) in contract_by_mailbox
+		]
+		findings.extend(
+			_unassigned_tenant_address_findings(
+				messages,
+				contract_by_mailbox=contract_by_mailbox,
+				known_tenant_addresses=set(global_tag_context.contracts_by_address),
+				own_addresses=set(global_tag_context.account_addresses),
 			)
 		)
 	folder_usage: dict[str, list[tuple[str, str]]] = defaultdict(list)

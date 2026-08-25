@@ -3,13 +3,14 @@ from types import SimpleNamespace
 from unittest import TestCase
 
 from .providers.base import ArchiveMessage
-from .problems import _tenant_folder_candidates
+from .problems import _tenant_folder_candidates, _unassigned_tenant_address_findings
 from .tagging import (
 	NO_PROPERTY_KEY,
 	ContractAddressPeriod,
 	TagContext,
 	ambiguous_contract_addresses,
 	contract_keyword,
+	_normalize_email,
 	is_managed_contract_keyword,
 	is_managed_keyword,
 	keyword_patch,
@@ -33,6 +34,80 @@ def folder(
 
 
 class TestArchiveProblems(TestCase):
+	def test_email_normalization_removes_legacy_wrapping_quotes(self) -> None:
+		self.assertEqual(_normalize_email("'Tenant@Example.test'"), "tenant@example.test")
+		self.assertEqual(
+			_normalize_email('Mieter \"Beispiel\" <Tenant@Example.test>'),
+			"tenant@example.test",
+		)
+
+	def test_unknown_address_creates_one_aggregated_problem_across_messages(self) -> None:
+		messages = [
+			{
+				"name": "MAIL-1",
+				"archive_account": "Archiv",
+				"actual_mailbox_id": "FOLDER",
+				"actual_folder_path": "Archiv/Mieter/Müller",
+				"subject": "Erste Nachricht",
+				"sender_email": "",
+				"participants": '{"from":[{"email":"UNKNOWN@example.test"}],'
+				'"to":[{"email":"office@example.test"}],"cc":[]}',
+			},
+			{
+				"name": "MAIL-2",
+				"archive_account": "Archiv",
+				"actual_mailbox_id": "CHILD",
+				"actual_folder_path": "Archiv/Mieter/Müller/Unterlagen",
+				"subject": "Zweite Nachricht",
+				"sender_email": "unknown@example.test",
+				"participants": "",
+			},
+		]
+		findings = _unassigned_tenant_address_findings(
+			messages,
+			contract_by_mailbox={
+				("Archiv", "FOLDER"): "MV-1",
+				("Archiv", "CHILD"): "MV-1",
+			},
+			known_tenant_addresses={"tenant@example.test"},
+			own_addresses={"office@example.test"},
+		)
+
+		self.assertEqual(len(findings), 1)
+		self.assertEqual(findings[0]["details"]["email_address"], "unknown@example.test")
+		self.assertEqual(findings[0]["details"]["message_count"], 2)
+		self.assertEqual(findings[0]["details"]["contracts"], ["MV-1"])
+		self.assertEqual(findings[0]["reference_name"], "MAIL-1")
+
+	def test_known_tenant_own_and_unmapped_addresses_do_not_create_problems(self) -> None:
+		messages = [
+			{
+				"name": "MAIL-1",
+				"archive_account": "Archiv",
+				"actual_mailbox_id": "FOLDER",
+				"participants": {
+					"from": [{"email": "tenant@example.test"}],
+					"to": [{"email": "office@example.test"}],
+				},
+			},
+			{
+				"name": "MAIL-2",
+				"archive_account": "Archiv",
+				"actual_mailbox_id": "OTHER",
+				"sender_email": "unknown@example.test",
+				"participants": "",
+			},
+		]
+		self.assertEqual(
+			_unassigned_tenant_address_findings(
+				messages,
+				contract_by_mailbox={("Archiv", "FOLDER"): "MV-1"},
+				known_tenant_addresses={"tenant@example.test"},
+				own_addresses={"office@example.test"},
+			),
+			[],
+		)
+
 	def test_property_keywords_are_stable_and_only_replace_managed_tags(self) -> None:
 		desired = property_keyword("Gropiusstr.")
 		self.assertEqual(desired, property_keyword("gropiusstr."))
