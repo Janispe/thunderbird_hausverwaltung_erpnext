@@ -5,6 +5,7 @@ from unittest import TestCase
 from unittest.mock import Mock, patch
 
 from ..doctype.mail_archive_account.mail_archive_account import normalize_account_addresses
+from ..doctype.mail_filing_source_account.mail_filing_source_account import normalize_watched_folders
 from .classifier import _matches_business_context
 from .embeddings import clean_message_text, cosine_similarity, normalize_vector
 from .error_diagnostics import SYSTEM_LIKE_FOLDER_RE, _folder_token, _path_parts, _segment
@@ -18,10 +19,16 @@ from .evaluation import (
 	_sender_gate_rankings,
 	_split_rows,
 )
-from .filing import _find_indexed_message_doc, _normalize_rfc_message_id
+from .filing import (
+	_confirm_filing_locked,
+	_find_indexed_message_doc,
+	_find_source_message_doc,
+	_normalize_rfc_message_id,
+)
 from .providers.base import ArchiveMailbox, ArchiveMessage
 from .providers.jmap import JMAPConfig, JMAPProvider
 from .sync import _mailbox_truth, build_mailbox_paths, folder_record_name, message_record_name
+from .source_sync import parse_imap_message, source_message_record_name
 
 
 class TestMailArchive(TestCase):
@@ -56,6 +63,114 @@ class TestMailArchive(TestCase):
 			normalize_account_addresses(" Archiv@Example.de\narchiv@example.de;team@example.de "),
 			["archiv@example.de", "team@example.de"],
 		)
+
+	def test_watched_imap_folders_are_normalized_and_deduplicated(self) -> None:
+		self.assertEqual(normalize_watched_folders(" INBOX\nInbox;Aufgaben "), ["INBOX", "Aufgaben"])
+
+	def test_source_message_names_include_account_folder_and_uidvalidity(self) -> None:
+		base = source_message_record_name("IONOS", "INBOX", "10", "42")
+		self.assertEqual(base, source_message_record_name("IONOS", "INBOX", "10", 42))
+		self.assertNotEqual(base, source_message_record_name("IONOS", "INBOX", "11", "42"))
+		self.assertNotEqual(base, source_message_record_name("IONOS", "Andere", "10", "42"))
+		self.assertNotEqual(base, source_message_record_name("IONOS 2", "INBOX", "10", "42"))
+
+	def test_imap_message_parsing_keeps_body_participants_and_attachment_metadata(self) -> None:
+		raw_message = b"\r\n".join(
+			[
+				b"From: =?utf-8?q?M=C3=BCller?= <MIETER@example.de>",
+				b"To: Verwaltung <verwaltung@haus-peters.de>",
+				b"Cc: Buchhaltung <buchhaltung@haus-peters.de>",
+				b"Subject: =?utf-8?q?K=C3=BCndigung?=",
+				b"Message-ID: <source-1@example.de>",
+				b"Date: Tue, 25 Aug 2026 10:00:00 +0200",
+				b"MIME-Version: 1.0",
+				b'Content-Type: multipart/mixed; boundary="boundary"',
+				b"",
+				b"--boundary",
+				b'Content-Type: text/plain; charset="utf-8"',
+				b"",
+				"Guten Tag, dies ist die Kündigung.".encode(),
+				b"--boundary",
+				b"Content-Type: application/pdf",
+				b'Content-Disposition: attachment; filename="kuendigung.pdf"',
+				b"",
+				b"pdf",
+				b"--boundary--",
+				b"",
+			]
+		)
+		message = parse_imap_message(raw_message, uid="42", folder="INBOX")
+		self.assertEqual(message.rfc_message_ids, ("source-1@example.de",))
+		self.assertEqual(message.subject, "Kündigung")
+		self.assertEqual(message.sender, ({"name": "Müller", "email": "mieter@example.de"},))
+		self.assertEqual(message.to[0]["email"], "verwaltung@haus-peters.de")
+		self.assertEqual(message.cc[0]["email"], "buchhaltung@haus-peters.de")
+		self.assertIn("dies ist die Kündigung", message.text_body)
+		self.assertTrue(message.has_attachment)
+		self.assertEqual(message.raw["attachment_count"], 1)
+		self.assertEqual(message.raw["attachment_names"], ["kuendigung.pdf"])
+
+	@patch("thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.filing.frappe.get_doc")
+	@patch("thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.filing.frappe.get_all")
+	def test_source_message_lookup_is_scoped_to_its_source_account(
+		self, get_all: Mock, get_doc: Mock
+	) -> None:
+		document = SimpleNamespace(name="MFSM-1")
+		get_all.return_value = [SimpleNamespace(name="MFSM-1")]
+		get_doc.return_value = document
+
+		self.assertIs(_find_source_message_doc("IONOS", "<source@example.test>"), document)
+		get_all.assert_called_once_with(
+			"Mail Filing Source Message",
+			filters={
+				"source_account": "IONOS",
+				"rfc_message_id": ["in", ["source@example.test", "<source@example.test>"]],
+			},
+			fields=["name"],
+			order_by="received_at desc, name asc",
+			limit_page_length=2,
+		)
+
+	@patch("thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.filing.get_provider")
+	@patch("thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.filing._can_decide")
+	def test_confirmation_only_records_feedback_and_never_moves_on_the_server(
+		self, can_decide: Mock, get_provider: Mock
+	) -> None:
+		suggestion = SimpleNamespace(
+			status="Vorgeschlagen",
+			chosen_folder="",
+			archive_account="Archiv",
+			proposed_folder="Folder-1",
+			source_message="",
+			db_set=Mock(),
+		)
+		target = SimpleNamespace(
+			name="Folder-1",
+			folder_path="Archive/Objekt/Mieter",
+			archive_account="Archiv",
+			selectable_target=1,
+		)
+		fake_frappe = SimpleNamespace(
+			db=SimpleNamespace(exists=Mock(return_value=True), set_value=Mock()),
+			get_doc=Mock(side_effect=[suggestion, target]),
+		)
+		can_decide.return_value = True
+
+		with (
+			patch(
+				"thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.filing.frappe",
+				fake_frappe,
+			),
+			patch(
+				"thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.filing.now_datetime",
+				return_value="2026-08-25 12:00:00",
+			),
+		):
+			result = _confirm_filing_locked("Suggestion-1", "Folder-1")
+
+		self.assertEqual(result["recorded"], True)
+		self.assertNotIn("moved", result)
+		get_provider.assert_not_called()
 
 	def test_mailbox_paths_use_stable_parent_ids(self) -> None:
 		mailboxes = [

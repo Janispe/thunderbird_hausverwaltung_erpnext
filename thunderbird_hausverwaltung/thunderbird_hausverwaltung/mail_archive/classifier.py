@@ -280,11 +280,13 @@ def create_suggestion(account: Any, message_doc: Any, limit: int = 3) -> dict[st
 	result = build_suggestions(account, message_doc, limit=limit)
 	candidates = result["candidates"]
 	first = candidates[0] if candidates else None
+	is_source_message = message_doc.doctype == "Mail Filing Source Message"
 	doc = frappe.get_doc(
 		{
 			"doctype": "Mail Filing Suggestion",
 			"archive_account": account.name,
-			"archive_message": message_doc.name,
+			"archive_message": "" if is_source_message else message_doc.name,
+			"source_message": message_doc.name if is_source_message else "",
 			"requested_by": frappe.session.user,
 			"status": "Vorgeschlagen",
 			"model_version": result["model_version"],
@@ -294,8 +296,11 @@ def create_suggestion(account: Any, message_doc: Any, limit: int = 3) -> dict[st
 			"candidates": json.dumps(candidates, ensure_ascii=False, separators=(",", ":")),
 		}
 	).insert(ignore_permissions=True)
+	if is_source_message and message_doc.status != "Abgelegt":
+		message_doc.db_set("status", "Vorgeschlagen", update_modified=False)
 	return {
 		"suggestion_id": doc.name,
+		"archive_account": account.name,
 		"message": {
 			"subject": message_doc.subject,
 			"sender": message_doc.sender_email,

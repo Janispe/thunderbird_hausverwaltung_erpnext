@@ -5,14 +5,15 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
-  "suggestion_section", "archive_account", "archive_message", "requested_by", "status", "model_version",
+  "suggestion_section", "archive_account", "archive_message", "source_message", "requested_by", "status", "model_version",
   "result_section", "proposed_folder", "confidence", "reasoning", "candidates",
   "decision_section", "chosen_folder", "decided_on", "error"
  ],
  "fields": [
   {"fieldname":"suggestion_section","fieldtype":"Section Break","label":"Vorschlag"},
   {"fieldname":"archive_account","fieldtype":"Link","label":"Mail-Archiv-Konto","options":"Mail Archive Account","reqd":1,"read_only":1,"search_index":1},
-  {"fieldname":"archive_message","fieldtype":"Link","label":"Nachricht","options":"Mail Archive Message","reqd":1,"read_only":1,"search_index":1},
+  {"fieldname":"archive_message","fieldtype":"Link","label":"Archivnachricht","options":"Mail Archive Message","read_only":1,"search_index":1},
+  {"fieldname":"source_message","fieldtype":"Link","label":"Quellnachricht","options":"Mail Filing Source Message","read_only":1,"search_index":1},
   {"fieldname":"requested_by","fieldtype":"Link","label":"Angefordert von","options":"User","reqd":1,"read_only":1},
   {"default":"Vorgeschlagen","fieldname":"status","fieldtype":"Select","label":"Status","options":"Vorgeschlagen\nAngenommen\nKorrigiert\nVerworfen\nFehler","reqd":1,"read_only":1,"in_list_view":1},
   {"fieldname":"model_version","fieldtype":"Data","label":"Modellversion","read_only":1},

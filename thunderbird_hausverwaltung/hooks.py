@@ -62,6 +62,11 @@ override_whitelisted_methods = {
 }
 
 scheduler_events = {
+	"cron": {
+		"*/5 * * * *": [
+			"thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.source_sync.enqueue_enabled_source_account_syncs",
+		],
+	},
 	"hourly": [
 		"thunderbird_hausverwaltung.thunderbird_hausverwaltung.integrations.thunderbird_bridge.cleanup_commands",
 		"thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.sync.enqueue_enabled_account_syncs",
