@@ -350,8 +350,11 @@ def _embed(
 	batch_size: int = 64,
 	timeout: int = 300,
 	num_ctx: int | None = None,
+	max_characters: int = 0,
 ) -> tuple[np.ndarray, float, int]:
 	started = time.perf_counter()
+	if max_characters > 0:
+		texts = [text[:max_characters] for text in texts]
 	vectors: list[list[float]] = []
 	fallback_count = 0
 
@@ -654,6 +657,7 @@ def run_benchmark(
 	full_text_path: str = "",
 	require_full_text: bool = False,
 	embedding_context_length: int = 0,
+	embedding_input_max_characters: int = 0,
 ) -> dict[str, Any]:
 	"""Backtest archived folder labels without changing messages or account settings."""
 	models = tuple(models or DEFAULT_MODELS)
@@ -753,6 +757,7 @@ def run_benchmark(
 				base_url=ollama_url,
 				batch_size=full_text_batch_size if variant in FULL_TEXT_VARIANTS else 64,
 				num_ctx=embedding_context_length or None,
+				max_characters=embedding_input_max_characters,
 			)
 			train_vectors = vectors[: len(train)]
 			test_vectors = vectors[len(train) :]
@@ -867,6 +872,7 @@ def run_benchmark(
 		"test_fraction_per_folder": test_fraction,
 		"min_messages_per_folder": min_messages_per_folder,
 		"embedding_context_length": embedding_context_length or None,
+		"embedding_input_max_characters": embedding_input_max_characters or None,
 		"own_address_diagnostics": own_address_diagnostics,
 		"participant_coverage": _participant_coverage(rows),
 		"attachment_messages": sum(bool(row.has_attachment) for row in rows),

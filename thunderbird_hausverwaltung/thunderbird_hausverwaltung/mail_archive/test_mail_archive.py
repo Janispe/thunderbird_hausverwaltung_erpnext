@@ -240,6 +240,21 @@ class TestMailArchive(TestCase):
 			timeout=300,
 		)
 
+	@patch("thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.evaluation.requests.post")
+	def test_evaluation_bounds_pathological_input_before_ollama(self, post: Mock) -> None:
+		response = Mock(ok=True)
+		response.json.return_value = {"embeddings": [[1.0, 0.0]]}
+		post.return_value = response
+
+		_embed(
+			["0123456789"],
+			model="embeddinggemma:300m-qat-q8_0",
+			base_url="http://ollama.example",
+			max_characters=6,
+		)
+
+		self.assertEqual(post.call_args.kwargs["json"]["input"], ["012345"])
+
 	def test_sender_gate_uses_only_a_reliable_sender_history(self) -> None:
 		train = [
 			SimpleNamespace(sender_email="stable@example.test", actual_mailbox_id="A"),

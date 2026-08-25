@@ -1,0 +1,11 @@
+{
+  "model": "embeddinggemma:300m-qat-q8_0",
+  "status": "operational_failure",
+  "model_file_mb": 338,
+  "observed_loaded_mb": 633,
+  "observed_context_tokens": 2048,
+  "input_max_characters": 6000,
+  "completed_result": false,
+  "reason": "Repeated input-length errors and recursive single-message fallbacks prevented the three-variant benchmark from completing in more than ten minutes.",
+  "raw_message_content_stored": false
+}
