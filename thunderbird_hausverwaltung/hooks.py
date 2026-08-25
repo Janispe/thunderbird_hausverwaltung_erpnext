@@ -36,15 +36,30 @@ hausverwaltung_problem_checks = [
 
 doc_events = {
 	"Immobilie": {
-		"on_update": "thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.problems.enqueue_archive_problem_check",
+		"on_update": [
+			"thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.problems.enqueue_archive_problem_check",
+			"thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.tagging.invalidate_tag_sync",
+		],
 	},
 	"Mietvertrag": {
-		"on_update": "thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.problems.enqueue_archive_problem_check",
-		"on_trash": "thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.problems.enqueue_archive_problem_check",
+		"on_update": [
+			"thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.problems.enqueue_archive_problem_check",
+			"thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.tagging.invalidate_tag_sync",
+		],
+		"on_trash": [
+			"thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.problems.enqueue_archive_problem_check",
+			"thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.tagging.invalidate_tag_sync",
+		],
 	},
 	"Mail Archive Folder": {
-		"on_update": "thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.problems.enqueue_archive_problem_check",
-		"on_trash": "thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.problems.enqueue_archive_problem_check",
+		"on_update": [
+			"thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.problems.enqueue_archive_problem_check",
+			"thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.tagging.invalidate_tag_sync",
+		],
+		"on_trash": [
+			"thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.problems.enqueue_archive_problem_check",
+			"thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.tagging.invalidate_tag_sync",
+		],
 	},
 }
 

@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from unittest import TestCase
 
 from .problems import _tenant_folder_candidates
+from .tagging import NO_PROPERTY_KEY, is_managed_keyword, keyword_patch, property_keyword
 
 
 def folder(
@@ -20,6 +21,19 @@ def folder(
 
 
 class TestArchiveProblems(TestCase):
+	def test_property_keywords_are_stable_and_only_replace_managed_tags(self) -> None:
+		desired = property_keyword("Gropiusstr.")
+		self.assertEqual(desired, property_keyword("gropiusstr."))
+		self.assertTrue(is_managed_keyword(desired))
+		self.assertEqual(
+			keyword_patch({"$seen", NO_PROPERTY_KEY, "privat"}, desired),
+			{NO_PROPERTY_KEY: None, desired: True},
+		)
+
+	def test_matching_property_keyword_needs_no_server_update(self) -> None:
+		desired = property_keyword("Leinestr.")
+		self.assertEqual(keyword_patch({"$seen", desired}, desired), {})
+
 	def test_tenant_candidates_include_current_and_historical_roots_only(self) -> None:
 		root = folder("ROOT", "", "Mieter G", folder_type="Mieter-Wurzelordner")
 		current = folder("CURRENT", "ROOT", "01-VH-Mieter")

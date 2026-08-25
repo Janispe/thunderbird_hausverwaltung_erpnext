@@ -18,6 +18,7 @@ from .embeddings import (
 )
 from .providers import get_provider
 from .providers.base import ArchiveMailbox, ArchiveMessage, ChangeStateUnavailable, MailArchiveProvider
+from .tagging import TagContext, apply_managed_tags, backfill_account_tags, build_tag_context
 
 EXCLUDED_TARGET_ROLES = {"inbox", "sent", "drafts", "junk", "trash", "submission"}
 EMBEDDING_BATCH_SIZE = 32
@@ -290,7 +291,10 @@ def _delete_messages(account_name: str, ids: Iterable[str]) -> set[str]:
 
 
 def _initial_sync(
-	account: Any, provider: MailArchiveProvider, folders: dict[str, Any]
+	account: Any,
+	provider: MailArchiveProvider,
+	folders: dict[str, Any],
+	tag_context: TagContext,
 ) -> tuple[int, set[str], bool, str]:
 	target_ids = sorted(
 		(mailbox_id for mailbox_id, folder in folders.items() if folder.selectable_target),
@@ -318,6 +322,7 @@ def _initial_sync(
 			mailbox_id=mailbox_id, position=position, limit=limit
 		)
 		messages, _state = provider.get_messages(ids)
+		apply_managed_tags(provider, messages, folders, tag_context)
 		stored, changed = upsert_messages(account, messages, folders)
 		processed += stored
 		touched.update(changed)
@@ -344,13 +349,17 @@ def _initial_sync(
 
 
 def _incremental_sync(
-	account: Any, provider: MailArchiveProvider, folders: dict[str, Any]
+	account: Any,
+	provider: MailArchiveProvider,
+	folders: dict[str, Any],
+	tag_context: TagContext,
 ) -> tuple[int, set[str], str]:
 	changes = provider.get_changes(
 		str(account.last_email_state), max_changes=int(account.max_messages_per_run)
 	)
 	ids = list(dict.fromkeys((*changes.created, *changes.updated)))
 	messages, _state = provider.get_messages(ids)
+	apply_managed_tags(provider, messages, folders, tag_context)
 	stored, touched = upsert_messages(account, messages, folders)
 	touched.update(_delete_messages(account.name, changes.destroyed))
 	return stored, touched, changes.new_state
@@ -366,18 +375,25 @@ def sync_account(account_name: str) -> dict[str, Any]:
 		mailboxes = provider.list_mailboxes()
 		folder_context = sync_folder_records(account, mailboxes)
 		folders = folder_context["folders"]
+		tag_context = build_tag_context(account.name)
 		if account.initial_sync_completed and account.last_email_state:
 			try:
-				stored, touched, state = _incremental_sync(account, provider, folders)
+				stored, touched, state = _incremental_sync(
+					account, provider, folders, tag_context
+				)
 				finished = True
 			except ChangeStateUnavailable:
 				account.db_set(
 					{"initial_sync_completed": 0, "last_email_state": "", "sync_cursor": ""},
 					update_modified=False,
 				)
-				stored, touched, finished, state = _initial_sync(account, provider, folders)
+				stored, touched, finished, state = _initial_sync(
+					account, provider, folders, tag_context
+				)
 		else:
-			stored, touched, finished, state = _initial_sync(account, provider, folders)
+			stored, touched, finished, state = _initial_sync(
+				account, provider, folders, tag_context
+			)
 		if touched:
 			rebuild_folder_centroids(account.name, touched)
 		account.db_set(
@@ -391,6 +407,9 @@ def sync_account(account_name: str) -> dict[str, Any]:
 			},
 			update_modified=False,
 		)
+		tag_summary: dict[str, Any] = {"completed": bool(account.tag_sync_completed)}
+		if not account.tag_sync_completed:
+			tag_summary = backfill_account_tags(account, provider, folders, tag_context)
 		problem_summary: dict[str, Any] = {}
 		try:
 			from .problems import check_archive_problems
@@ -402,6 +421,7 @@ def sync_account(account_name: str) -> dict[str, Any]:
 			"status": "success",
 			"stored": stored,
 			"initial_sync_completed": finished,
+			"tags": tag_summary,
 			"problems": problem_summary,
 		}
 	except Exception as exc:

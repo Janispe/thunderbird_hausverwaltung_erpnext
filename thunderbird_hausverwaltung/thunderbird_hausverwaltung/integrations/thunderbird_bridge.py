@@ -512,6 +512,8 @@ def register_device(
 			}
 		).insert(ignore_permissions=True)
 
+	from ..mail_archive.tagging import get_tag_definitions
+
 	return {
 		"device_id": device.name,
 		"device_name": device.device_name,
@@ -519,6 +521,7 @@ def register_device(
 		"enabled": bool(device.enabled),
 		"site": frappe.local.site,
 		"realtime_event": REALTIME_EVENT,
+		"mail_tags": get_tag_definitions(),
 	}
 
 

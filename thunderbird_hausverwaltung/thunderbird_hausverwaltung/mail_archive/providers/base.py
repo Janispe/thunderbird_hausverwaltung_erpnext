@@ -25,6 +25,7 @@ class ArchiveMessage:
 	id: str
 	thread_id: str
 	mailbox_ids: tuple[str, ...]
+	keywords: tuple[str, ...] = ()
 	rfc_message_ids: tuple[str, ...] = ()
 	in_reply_to: tuple[str, ...] = ()
 	references: tuple[str, ...] = ()
@@ -83,4 +84,9 @@ class MailArchiveProvider(ABC):
 
 	@abstractmethod
 	def move_message(self, message_id: str, target_mailbox_id: str) -> None:
+		pass
+
+	@abstractmethod
+	def patch_keywords(self, updates: dict[str, dict[str, bool | None]]) -> None:
+		"""Apply keyword-only JMAP-style patches without replacing unrelated flags."""
 		pass

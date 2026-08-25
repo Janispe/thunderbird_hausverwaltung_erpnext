@@ -259,6 +259,7 @@ class JMAPProvider(MailArchiveProvider):
 						"id",
 						"threadId",
 						"mailboxIds",
+						"keywords",
 						"receivedAt",
 						"hasAttachment",
 						"subject",
@@ -292,6 +293,11 @@ class JMAPProvider(MailArchiveProvider):
 			id=str(row["id"]),
 			thread_id=str(row.get("threadId") or ""),
 			mailbox_ids=tuple((row.get("mailboxIds") or {}).keys()),
+			keywords=tuple(
+				str(keyword).casefold()
+				for keyword, enabled in (row.get("keywords") or {}).items()
+				if enabled
+			),
 			rfc_message_ids=_string_tuple(row.get("messageId")),
 			in_reply_to=_string_tuple(row.get("inReplyTo")),
 			references=_string_tuple(row.get("references")),
@@ -353,3 +359,31 @@ class JMAPProvider(MailArchiveProvider):
 		if result.get("notUpdated"):
 			error = (result["notUpdated"].get(message_id) or {}).get("description") or "Unbekannter Fehler"
 			raise JMAPError(f"Die Nachricht konnte nicht verschoben werden: {error}")
+
+	def patch_keywords(self, updates: dict[str, dict[str, bool | None]]) -> None:
+		if not updates:
+			return
+		core = (self.session.get("capabilities") or {}).get(CORE_CAPABILITY) or {}
+		batch_size = max(int(core.get("maxObjectsInSet") or 500), 1)
+		items = list(updates.items())
+		for offset in range(0, len(items), batch_size):
+			batch = {
+				message_id: {
+					f"keywords/{keyword}": enabled for keyword, enabled in keyword_updates.items()
+				}
+				for message_id, keyword_updates in items[offset : offset + batch_size]
+			}
+			result = self._single(
+				"Email/set",
+				{
+					"accountId": self.account_id,
+					"update": batch,
+				},
+			)
+			if result.get("notUpdated"):
+				message_id, failure = next(iter(result["notUpdated"].items()))
+				description = (failure or {}).get("description") or (failure or {}).get("type")
+				raise JMAPError(
+					f"Schlagwörter für Nachricht {message_id} konnten nicht gespeichert werden: "
+					f"{description or 'Unbekannter Fehler'}"
+				)

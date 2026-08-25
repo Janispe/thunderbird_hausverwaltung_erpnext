@@ -122,3 +122,12 @@ class MailArchiveAccount(Document):
 		from ...mail_archive.sync import enqueue_account_sync
 
 		return enqueue_account_sync(self.name)
+
+	@frappe.whitelist()
+	def rebuild_tags(self) -> dict:
+		self.check_permission("write")
+		from ...mail_archive.tagging import reset_tag_sync
+		from ...mail_archive.sync import enqueue_account_sync
+
+		reset_tag_sync(self.name)
+		return enqueue_account_sync(self.name)

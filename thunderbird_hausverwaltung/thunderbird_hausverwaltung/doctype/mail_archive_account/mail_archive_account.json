@@ -11,7 +11,8 @@
   "embedding_section", "embedding_enabled", "embedding_provider", "embedding_base_url",
   "column_break_embedding", "embedding_model", "embedding_api_key", "embedding_timeout",
   "sync_section", "max_messages_per_run", "initial_sync_completed", "sync_cursor",
-  "column_break_sync", "last_email_state", "last_sync_on", "sync_status", "last_error"
+  "column_break_sync", "last_email_state", "last_sync_on", "sync_status", "last_error",
+  "tag_sync_section", "tag_sync_completed", "tag_sync_cursor", "column_break_tag_sync", "last_tag_sync_on"
  ],
  "fields": [
   {"fieldname":"connection_section","fieldtype":"Section Break","label":"Mailserver"},
@@ -44,7 +45,12 @@
   {"fieldname":"last_email_state","fieldtype":"Small Text","label":"Letzter JMAP Email-State","read_only":1},
   {"fieldname":"last_sync_on","fieldtype":"Datetime","label":"Zuletzt synchronisiert","read_only":1},
   {"default":"Noch nicht synchronisiert","fieldname":"sync_status","fieldtype":"Select","label":"Status","options":"Noch nicht synchronisiert\nEingereiht\nLäuft\nErfolgreich\nFehler","read_only":1,"in_list_view":1},
-  {"fieldname":"last_error","fieldtype":"Long Text","label":"Letzter Fehler","read_only":1}
+  {"fieldname":"last_error","fieldtype":"Long Text","label":"Letzter Fehler","read_only":1},
+  {"fieldname":"tag_sync_section","fieldtype":"Section Break","label":"Automatische Schlagwörter"},
+  {"default":"0","description":"Alle bereits indexierten Archivnachrichten wurden anhand ihrer Ordnerzuordnung getaggt.","fieldname":"tag_sync_completed","fieldtype":"Check","label":"Bestehende Nachrichten vollständig getaggt","read_only":1},
+  {"fieldname":"tag_sync_cursor","fieldtype":"Data","label":"Schlagwort-Cursor","hidden":1,"read_only":1},
+  {"fieldname":"column_break_tag_sync","fieldtype":"Column Break"},
+  {"fieldname":"last_tag_sync_on","fieldtype":"Datetime","label":"Zuletzt getaggt","read_only":1}
  ],
  "index_web_pages_for_search": 0,
  "links": [],

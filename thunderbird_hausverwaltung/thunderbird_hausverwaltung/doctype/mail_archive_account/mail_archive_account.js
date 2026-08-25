@@ -18,6 +18,10 @@ frappe.ui.form.on("Mail Archive Account", {
 			const result = await frm.call("rebuild_folder_centroids");
 			frappe.show_alert(__("{0} Ordner wurden aktualisiert.", [result.message.updated]));
 		}, __("Mail-Archiv"));
+		frm.add_custom_button(__("Schlagwörter neu aufbauen"), async () => {
+			await frm.call("rebuild_tags");
+			frappe.show_alert(__("Die Schlagwort-Synchronisierung wurde eingereiht."));
+		}, __("Mail-Archiv"));
 		frm.add_custom_button(__("Vollständig neu indexieren"), async () => {
 			await frm.call("reindex_all");
 			frappe.show_alert(__("Vollständige Neuindexierung wurde eingereiht."));

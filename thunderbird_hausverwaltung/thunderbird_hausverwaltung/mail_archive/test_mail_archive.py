@@ -214,6 +214,7 @@ class TestMailArchive(TestCase):
 				"id": "E1",
 				"threadId": "T1",
 				"mailboxIds": {"inbox": True},
+				"keywords": {"$seen": True, "hv-immobilie-1": True, "ignored": False},
 				"messageId": ["<mail@example.de>"],
 				"from": [{"name": "Mieter", "email": "MIETER@EXAMPLE.DE"}],
 				"textBody": [{"partId": "1"}],
@@ -223,8 +224,37 @@ class TestMailArchive(TestCase):
 		self.assertEqual(message.id, "E1")
 		self.assertEqual(message.thread_id, "T1")
 		self.assertEqual(message.rfc_message_ids, ("<mail@example.de>",))
+		self.assertEqual(message.keywords, ("$seen", "hv-immobilie-1"))
 		self.assertEqual(message.sender[0]["email"], "mieter@example.de")
 		self.assertEqual(message.text_body, "Nachrichtentext")
+
+	def test_jmap_keyword_updates_use_patch_paths_and_preserve_unrelated_flags(self) -> None:
+		provider = JMAPProvider(JMAPConfig("https://mail.example", "user", "secret", account_id="A1"))
+		provider._session = {
+			"capabilities": {
+				"urn:ietf:params:jmap:core": {"maxObjectsInSet": 500},
+				"urn:ietf:params:jmap:mail": {},
+			},
+			"accounts": {"A1": {"name": "Archiv"}},
+		}
+		provider._single = Mock(return_value={"updated": {"E1": None}})
+
+		provider.patch_keywords(
+			{"E1": {"hv-keine-immobilie": None, "hv-immobilie-1": True}}
+		)
+
+		provider._single.assert_called_once_with(
+			"Email/set",
+			{
+				"accountId": "A1",
+				"update": {
+					"E1": {
+						"keywords/hv-keine-immobilie": None,
+						"keywords/hv-immobilie-1": True,
+					}
+				},
+			},
+		)
 
 	def test_jmap_discovery_always_uses_well_known_root(self) -> None:
 		provider = JMAPProvider(JMAPConfig("https://mail.example/prefix", "user", "secret"))
