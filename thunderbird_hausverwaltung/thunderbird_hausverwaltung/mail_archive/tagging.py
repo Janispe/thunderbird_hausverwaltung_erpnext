@@ -25,11 +25,12 @@ def is_managed_keyword(keyword: str) -> bool:
 	return value == NO_PROPERTY_KEY or value.startswith(PROPERTY_KEY_PREFIX)
 
 
-def keyword_patch(current: set[str], desired: str) -> dict[str, bool | None]:
+def keyword_patch(current: set[str], desired: set[str]) -> dict[str, bool | None]:
 	managed = {keyword.casefold() for keyword in current if is_managed_keyword(keyword)}
-	patch = {keyword: None for keyword in managed if keyword != desired}
-	if desired not in managed:
-		patch[desired] = True
+	desired_keywords = {keyword.casefold() for keyword in desired if keyword}
+	patch = {keyword: None for keyword in managed - desired_keywords}
+	for keyword in desired_keywords - managed:
+		patch[keyword] = True
 	return patch
 
 
@@ -57,9 +58,9 @@ def get_tag_definitions() -> list[dict[str, str]]:
 class TagContext:
 	property_by_mailbox: dict[str, str]
 
-	def keyword_for_mailbox(self, mailbox_id: str) -> str:
+	def keywords_for_mailbox(self, mailbox_id: str) -> set[str]:
 		immobilie = self.property_by_mailbox.get(str(mailbox_id or ""), "")
-		return property_keyword(immobilie) if immobilie else NO_PROPERTY_KEY
+		return {property_keyword(immobilie)} if immobilie else set()
 
 
 def build_tag_context(account_name: str) -> TagContext:
@@ -161,8 +162,11 @@ def apply_managed_tags(
 		if len(targets) != 1:
 			continue
 		considered += 1
-		desired = context.keyword_for_mailbox(targets[0])
-		by_tag[desired] += 1
+		desired = context.keywords_for_mailbox(targets[0])
+		if desired:
+			by_tag.update(desired)
+		else:
+			by_tag["untagged"] += 1
 		patch = keyword_patch(set(message.keywords), desired)
 		if patch:
 			updates[message.id] = patch

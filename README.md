@@ -91,15 +91,17 @@ IMAP-UIDs sorgen danach dafür, dass nur neue beziehungsweise geänderte Daten a
 
 ### Immobilien-Schlagwörter
 
-Archivnachrichten erhalten über JMAP genau ein von ERPNext verwaltetes Immobilien-Schlagwort. Die
-fünf Hauptimmobilien werden aus ihren konfigurierten Immobilien- und Mieter-Wurzelordnern erkannt;
-alle übrigen Archivordner erhalten **Keine Immobilie**. Vorhandene private Schlagwörter sowie
+Eindeutig zugeordnete Archivnachrichten erhalten über JMAP genau ein von ERPNext verwaltetes
+Immobilien-Schlagwort. Die fünf Hauptimmobilien werden aus ihren konfigurierten Immobilien- und
+Mieter-Wurzelordnern erkannt. Nachrichten außerhalb dieser eindeutig zugeordneten Bereiche bleiben
+ohne Immobilien-Schlagwort. Vorhandene private Schlagwörter sowie
 Systemkennzeichen wie gelesen oder beantwortet bleiben erhalten. Neue Nachrichten werden beim
 Archivabgleich sofort getaggt, der Altbestand wird mit einem dauerhaften Cursor in begrenzten
 Paketen nachgezogen. Änderungen an Immobilien- oder Ordnerzuordnungen starten den Abgleich erneut.
 
-Das Thunderbird-Add-on legt beim Verbindungsaufbau die sechs zugehörigen Tagdefinitionen mit
-Anzeigename und Farbe im lokalen Profil an. Stalwart hält die eigentlichen IMAP/JMAP-Keywords,
+Das Thunderbird-Add-on legt beim Verbindungsaufbau die fünf Immobilien-Tags sowie den ausschließlich
+manuell verwendbaren Tag **Keine Immobilie** mit Anzeigename und Farbe im lokalen Profil an.
+Stalwart hält die eigentlichen IMAP/JMAP-Keywords,
 sodass dieselben Zuordnungen in jedem entsprechend eingerichteten Thunderbird sichtbar werden.
 
 ### Daten- und Entscheidungsmodell

@@ -26,13 +26,16 @@ class TestArchiveProblems(TestCase):
 		self.assertEqual(desired, property_keyword("gropiusstr."))
 		self.assertTrue(is_managed_keyword(desired))
 		self.assertEqual(
-			keyword_patch({"$seen", NO_PROPERTY_KEY, "privat"}, desired),
+			keyword_patch({"$seen", NO_PROPERTY_KEY, "privat"}, {desired}),
 			{NO_PROPERTY_KEY: None, desired: True},
 		)
 
 	def test_matching_property_keyword_needs_no_server_update(self) -> None:
 		desired = property_keyword("Leinestr.")
-		self.assertEqual(keyword_patch({"$seen", desired}, desired), {})
+		self.assertEqual(keyword_patch({"$seen", desired}, {desired}), {})
+
+	def test_unknown_property_removes_old_fallback_tag_without_replacement(self) -> None:
+		self.assertEqual(keyword_patch({"$seen", NO_PROPERTY_KEY}, set()), {NO_PROPERTY_KEY: None})
 
 	def test_tenant_candidates_include_current_and_historical_roots_only(self) -> None:
 		root = folder("ROOT", "", "Mieter G", folder_type="Mieter-Wurzelordner")
