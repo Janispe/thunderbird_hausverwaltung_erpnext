@@ -186,7 +186,13 @@ def _normalize_email(value: Any) -> str:
 	if not raw:
 		return ""
 	parsed = parseaddr(raw)[1] or raw
-	return parsed.strip().strip("\"'<>").casefold()
+	normalized = parsed.strip().strip("\"'<>").casefold()
+	local, separator, domain = normalized.partition("@")
+	if separator != "@" or not local or not domain or "@" in domain or any(
+		character.isspace() for character in normalized
+	):
+		return ""
+	return normalized
 
 
 def _message_day(value: Any) -> date | None:

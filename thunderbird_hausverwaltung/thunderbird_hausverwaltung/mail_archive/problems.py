@@ -50,6 +50,7 @@ def _finding(
 	title: str,
 	problem_type: str,
 	description: str,
+	problem_code: str = "",
 	severity: str = "Warnung",
 	reference_doctype: str = "",
 	reference_name: str = "",
@@ -61,6 +62,7 @@ def _finding(
 		"key": key,
 		"title": title,
 		"problem_type": problem_type,
+		"problem_code": problem_code,
 		"description": description,
 		"severity": severity,
 		"reference_doctype": reference_doctype,
@@ -115,6 +117,7 @@ def _unassigned_tenant_address_findings(
 				address,
 				{
 					"count": 0,
+					"accounts": set(),
 					"contracts": set(),
 					"folders": set(),
 					"examples": [],
@@ -122,6 +125,7 @@ def _unassigned_tenant_address_findings(
 				},
 			)
 			entry["count"] += 1
+			entry["accounts"].add(account)
 			entry["contracts"].add(contract)
 			if folder_path := str(message.get("actual_folder_path") or ""):
 				entry["folders"].add(folder_path)
@@ -137,6 +141,7 @@ def _unassigned_tenant_address_findings(
 	findings: list[dict[str, Any]] = []
 	for address, entry in sorted(by_address.items()):
 		contracts = sorted(entry["contracts"])
+		accounts = sorted(entry["accounts"])
 		folders = sorted(entry["folders"])
 		count = int(entry["count"])
 		address_key = hashlib.sha256(address.encode()).hexdigest()[:16]
@@ -145,6 +150,7 @@ def _unassigned_tenant_address_findings(
 				key=f"tenant-email:{address_key}:unassigned",
 				title=f"E-Mail-Adresse keinem Mieter zugeordnet: {address}",
 				problem_type="E-Mail-Adresse keinem Mieter zugeordnet",
+				problem_code="mail.unassigned_tenant_address",
 				description=(
 					f"Die E-Mail-Adresse {address} kommt in {count} Nachricht(en) innerhalb von "
 					f"{len(folders)} zugeordneten Mieterordner(n) vor, ist in ERPNext aber keinem "
@@ -159,6 +165,7 @@ def _unassigned_tenant_address_findings(
 				details={
 					"email_address": address,
 					"message_count": count,
+					"accounts": accounts,
 					"contracts": contracts,
 					"folders": folders,
 					"examples": entry["examples"],
@@ -175,6 +182,7 @@ def _missing_property_folder_finding(immobilie: str, *, tenant_root: bool) -> di
 		key=f"immobilie:{immobilie}:{'tenant' if tenant_root else 'property'}-folder-missing",
 		title=f"{label} für {immobilie} fehlt",
 		problem_type=problem_type,
+		problem_code=("mail.tenant_root_missing" if tenant_root else "mail.property_folder_missing"),
 		description=(
 			f"Für die Immobilie {immobilie} ist kein {label} aus Stalwart hinterlegt. "
 			"Ordnen Sie im Tab E-Mail-Archiv den passenden Ordner zu."
@@ -245,6 +253,7 @@ def check_archive_problems() -> dict[str, Any]:
 				key="source-account:ionos-missing",
 				title="IONOS-Postfach für automatische Mietvertragstags fehlt",
 				problem_type="IONOS-Quellpostfach fehlt",
+				problem_code="mail.ionos_source_missing",
 				description=(
 					"Richten Sie ein aktives Mail Filing Source Account für das IONOS-Postfach ein. "
 					"Ohne IMAP-Zugang kann ERPNext dort keine Mietvertragstags setzen."
@@ -260,6 +269,7 @@ def check_archive_problems() -> dict[str, Any]:
 				key=f"tenant-email:{address_key}:ambiguous-contracts",
 				title=f"Mieter-E-Mail-Adresse ist mehrdeutig: {address}",
 				problem_type="Mieter-E-Mail-Adresse mehreren Mietverträgen zugeordnet",
+				problem_code="mail.ambiguous_tenant_address",
 				description=(
 					"Die E-Mail-Adresse ist im selben Zeitraum mehreren Mietverträgen zugeordnet. "
 					"ERPNext setzt deshalb ohne eindeutigen Mieterordner keinen Mietvertragstag."
@@ -336,6 +346,7 @@ def check_archive_problems() -> dict[str, Any]:
 				key=f"folder:{folder_name}:duplicate-property-use",
 				title=f"Archivordner mehrfach verwendet: {folder.folder_name if folder else folder_name}",
 				problem_type="Archivordner mehrfach zugeordnet",
+				problem_code="mail.folder_duplicate_assignment",
 				description="Derselbe Stalwart-Ordner ist mehrfach als Immobilien- oder Mieterordner hinterlegt.",
 				severity="Kritisch",
 				reference_doctype="Mail Archive Folder",
@@ -366,6 +377,7 @@ def check_archive_problems() -> dict[str, Any]:
 						key=f"immobilie:{immobilie_name}:{role}:folder-not-on-server",
 						title=f"{role} für {immobilie_name} fehlt auf dem Mailserver",
 						problem_type="Archivordner nicht auf Mailserver vorhanden",
+						problem_code="mail.folder_missing_on_server",
 						description=(
 							f"Der in ERPNext hinterlegte {role} wurde bei der letzten Stalwart-Synchronisierung nicht gefunden."
 						),
@@ -385,6 +397,7 @@ def check_archive_problems() -> dict[str, Any]:
 					key=f"immobilie:{immobilie_name}:archive-account-mismatch",
 					title=f"Archivordner von {immobilie_name} liegen in verschiedenen Konten",
 					problem_type="Unterschiedliche Archivkonten",
+					problem_code="mail.archive_account_mismatch",
 					description="Immobilienordner und Mieterordner müssen zum selben Mail-Archiv-Konto gehören.",
 					severity="Kritisch",
 					reference_doctype="Immobilie",
@@ -406,6 +419,7 @@ def check_archive_problems() -> dict[str, Any]:
 						key=f"folder:{folder.name}:tenant-contract-missing",
 						title=f"Mieterordner ohne Mietvertrag: {folder.folder_name}",
 						problem_type="Mieterordner ohne Mietvertrag",
+						problem_code="mail.tenant_folder_unassigned",
 						description=(
 							f"Der Ordner {folder.folder_path} liegt im Mieterbereich von {immobilie_name}, "
 							"ist aber keinem Mietvertrag zugeordnet."
@@ -423,6 +437,7 @@ def check_archive_problems() -> dict[str, Any]:
 						key=f"folder:{folder.name}:invalid-contract-reference",
 						title=f"Ungültiger Mietvertragsbezug: {folder.folder_name}",
 						problem_type="Ungültiger Mietvertragsbezug",
+						problem_code="mail.invalid_contract_reference",
 						description="Der Mieterordner verweist nicht auf einen vorhandenen Mietvertrag.",
 						severity="Kritisch",
 						reference_doctype="Mail Archive Folder",
@@ -443,6 +458,7 @@ def check_archive_problems() -> dict[str, Any]:
 						key=f"folder:{folder.name}:wrong-property",
 						title=f"Mieterordner gehört zur falschen Immobilie: {folder.folder_name}",
 						problem_type="Mietvertrag und Ordnerbereich widersprechen sich",
+						problem_code="mail.folder_wrong_property",
 						description=(
 							f"Der Ordner liegt unter {immobilie_name}, der zugeordnete Mietvertrag gehört aber zu "
 							f"{contract.immobilie or 'keiner Immobilie'}."
@@ -463,6 +479,7 @@ def check_archive_problems() -> dict[str, Any]:
 					key=f"contract:{contract_name}:multiple-current-folders",
 					title=f"Mehrere aktuelle Mieterordner für {contract_name}",
 					problem_type="Mehrere aktuelle Ordner für Mietvertrag",
+					problem_code="mail.multiple_current_folders",
 					description="Mehrere aktuelle Mieter-Stammordner verweisen auf denselben Mietvertrag.",
 					reference_doctype="Mietvertrag",
 					reference_name=contract_name,
@@ -484,6 +501,7 @@ def check_archive_problems() -> dict[str, Any]:
 						key=f"contract:{contract.name}:tenant-folder-missing",
 						title=f"Laufender Mietvertrag ohne Mieterordner: {contract.name}",
 						problem_type="Laufender Mietvertrag ohne Mieterordner",
+						problem_code="mail.running_contract_missing_folder",
 						description=(
 							"Für den laufenden Mietvertrag wurde im konfigurierten Mieterbereich kein zugeordneter "
 							"Mieter-Stammordner gefunden."

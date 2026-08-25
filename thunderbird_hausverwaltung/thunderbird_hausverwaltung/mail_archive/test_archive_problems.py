@@ -1,9 +1,11 @@
 from datetime import date
 from types import SimpleNamespace
 from unittest import TestCase
+from unittest.mock import Mock, patch
 
 from .providers.base import ArchiveMessage
 from .problems import _tenant_folder_candidates, _unassigned_tenant_address_findings
+from .problem_types import UnassignedTenantAddressProblemType
 from .tagging import (
 	NO_PROPERTY_KEY,
 	ContractAddressPeriod,
@@ -34,12 +36,76 @@ def folder(
 
 
 class TestArchiveProblems(TestCase):
+	@patch(
+		"thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.problem_types.frappe.has_permission",
+		return_value=True,
+	)
+	@patch(
+		"thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.problem_types.frappe.get_all",
+		return_value=[SimpleNamespace(mieter="CONTACT-1")],
+	)
+	def test_unknown_address_problem_type_describes_its_own_ui(
+		self, _get_all: Mock, _has_permission: Mock
+	) -> None:
+		ui = UnassignedTenantAddressProblemType().get_ui(
+			SimpleNamespace(status="Offen"),
+			{
+				"email_address": "unknown@example.test",
+				"message_count": 2,
+				"accounts": ["Archiv"],
+				"contracts": ["MV-1"],
+				"folders": ["Archiv/Mieter/Müller"],
+				"examples": [{"subject": "Frage", "folder": "Archiv/Mieter/Müller"}],
+			},
+		)
+
+		self.assertEqual(
+			[item["key"] for item in ui["actions"]],
+			["assign_contact_email", "add_own_address"],
+		)
+		assign_fields = {item["fieldname"]: item for item in ui["actions"][0]["fields"]}
+		self.assertEqual(assign_fields["contract"]["filters"], {"name": ["in", ["MV-1"]]})
+		self.assertEqual(assign_fields["contact"]["filters"], {"name": ["in", ["CONTACT-1"]]})
+
+	@patch(
+		"thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.problem_types.frappe.get_doc"
+	)
+	@patch(
+		"thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.problem_types.frappe.db.exists",
+		return_value=True,
+	)
+	def test_assign_email_only_writes_to_a_contract_partner(
+		self, _exists: Mock, get_doc: Mock
+	) -> None:
+		contact = SimpleNamespace(
+			email_ids=[],
+			check_permission=Mock(),
+			append=Mock(),
+			save=Mock(),
+		)
+		get_doc.return_value = contact
+
+		result = UnassignedTenantAddressProblemType._assign_contact_email(
+			{"contracts": ["MV-1"]},
+			"unknown@example.test",
+			{"contract": "MV-1", "contact": "CONTACT-1"},
+		)
+
+		contact.check_permission.assert_called_once_with("write")
+		contact.append.assert_called_once_with(
+			"email_ids", {"email_id": "unknown@example.test"}
+		)
+		contact.save.assert_called_once_with()
+		self.assertTrue(result["recheck"])
+
 	def test_email_normalization_removes_legacy_wrapping_quotes(self) -> None:
 		self.assertEqual(_normalize_email("'Tenant@Example.test'"), "tenant@example.test")
 		self.assertEqual(
 			_normalize_email('Mieter \"Beispiel\" <Tenant@Example.test>'),
 			"tenant@example.test",
 		)
+		self.assertEqual(_normalize_email("@example.test"), "")
+		self.assertEqual(_normalize_email("not-an-email"), "")
 
 	def test_unknown_address_creates_one_aggregated_problem_across_messages(self) -> None:
 		messages = [

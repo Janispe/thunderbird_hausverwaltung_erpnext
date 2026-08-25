@@ -34,6 +34,10 @@ hausverwaltung_problem_checks = [
 	"thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.problems.check_archive_problems",
 ]
 
+hausverwaltung_problem_type_providers = [
+	"thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.problem_types.get_problem_types",
+]
+
 doc_events = {
 	"Immobilie": {
 		"on_update": [
