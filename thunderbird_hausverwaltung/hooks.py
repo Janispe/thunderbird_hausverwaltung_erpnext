@@ -16,12 +16,36 @@ app_include_css = [
 ]
 
 doctype_js = {
+	"Immobilie": "public/js/immobilie.js",
 	"Mietvertrag": "public/js/mietvertrag.js",
 	"Wohnung": "public/js/wohnung.js",
 }
 
 page_js = {
 	"immobilienbaumansich": "public/js/immobilienbaumansich.js",
+}
+
+after_migrate = [
+	"thunderbird_hausverwaltung.thunderbird_hausverwaltung.setup.ensure_mail_archive_integration",
+	"thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.problems.check_archive_problems",
+]
+
+hausverwaltung_problem_checks = [
+	"thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.problems.check_archive_problems",
+]
+
+doc_events = {
+	"Immobilie": {
+		"on_update": "thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.problems.enqueue_archive_problem_check",
+	},
+	"Mietvertrag": {
+		"on_update": "thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.problems.enqueue_archive_problem_check",
+		"on_trash": "thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.problems.enqueue_archive_problem_check",
+	},
+	"Mail Archive Folder": {
+		"on_update": "thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.problems.enqueue_archive_problem_check",
+		"on_trash": "thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.problems.enqueue_archive_problem_check",
+	},
 }
 
 before_request = [
@@ -41,5 +65,8 @@ scheduler_events = {
 	"hourly": [
 		"thunderbird_hausverwaltung.thunderbird_hausverwaltung.integrations.thunderbird_bridge.cleanup_commands",
 		"thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.sync.enqueue_enabled_account_syncs",
+	],
+	"daily": [
+		"thunderbird_hausverwaltung.thunderbird_hausverwaltung.mail_archive.problems.check_archive_problems",
 	],
 }

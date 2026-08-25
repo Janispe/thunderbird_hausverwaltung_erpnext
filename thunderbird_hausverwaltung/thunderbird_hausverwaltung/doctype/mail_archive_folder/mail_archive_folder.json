@@ -6,7 +6,7 @@
  "engine": "InnoDB",
  "field_order": [
   "folder_section", "archive_account", "provider_mailbox_id", "folder_name", "folder_path",
-  "column_break_folder", "parent_mailbox_id", "role", "selectable_target", "last_synced",
+  "column_break_folder", "parent_mailbox_id", "role", "provider_exists", "selectable_target", "folder_type", "last_synced",
   "reference_section", "reference_doctype", "reference_name",
   "embedding_section", "sample_count", "embedding_dimension", "embedding_model", "centroid_sum", "centroid_embedding"
  ],
@@ -19,7 +19,9 @@
   {"fieldname":"column_break_folder","fieldtype":"Column Break"},
   {"fieldname":"parent_mailbox_id","fieldtype":"Data","label":"Übergeordnete Mailbox-ID","read_only":1},
   {"fieldname":"role","fieldtype":"Data","label":"JMAP-Rolle","read_only":1},
+  {"default":"1","fieldname":"provider_exists","fieldtype":"Check","label":"Auf Mailserver vorhanden","read_only":1,"in_list_view":1},
   {"default":"0","description":"Nur aktivierte Ordner werden als Ablageziel angeboten.","fieldname":"selectable_target","fieldtype":"Check","label":"Als Ablageziel verwenden","in_list_view":1},
+  {"default":"Automatisch","description":"Steuert, ob ein Ordner als Mieter-Stammordner geprüft oder als Strukturordner ignoriert wird.","fieldname":"folder_type","fieldtype":"Select","label":"Ordnertyp","options":"Automatisch\nImmobilienordner\nMieter-Wurzelordner\nMieter-Stammordner\nStrukturordner","in_list_view":1,"in_standard_filter":1},
   {"fieldname":"last_synced","fieldtype":"Datetime","label":"Zuletzt synchronisiert","read_only":1},
   {"fieldname":"reference_section","fieldtype":"Section Break","label":"Fachlicher Bezug"},
   {"description":"Optionaler stabiler ERPNext-Bezug des Archivordners.","fieldname":"reference_doctype","fieldtype":"Link","label":"Dokumenttyp","options":"DocType"},

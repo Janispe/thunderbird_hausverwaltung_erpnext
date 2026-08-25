@@ -84,8 +84,10 @@ def sync_folder_records(account: Any, mailboxes: list[ArchiveMailbox]) -> dict[s
 		frappe.db.set_value(
 			"Mail Archive Folder",
 			{"archive_account": account.name, "provider_mailbox_id": ["in", list(missing_ids)]},
-			"selectable_target",
-			0,
+			{
+				"provider_exists": 0,
+				"selectable_target": 0,
+			},
 			update_modified=False,
 		)
 	for mailbox in mailboxes:
@@ -99,6 +101,7 @@ def sync_folder_records(account: Any, mailboxes: list[ArchiveMailbox]) -> dict[s
 			"folder_path": paths[mailbox.id],
 			"parent_mailbox_id": mailbox.parent_id or "",
 			"role": mailbox.role or "",
+			"provider_exists": 1,
 			"last_synced": now_datetime(),
 		}
 		if frappe.db.exists("Mail Archive Folder", name):
@@ -388,7 +391,19 @@ def sync_account(account_name: str) -> dict[str, Any]:
 			},
 			update_modified=False,
 		)
-		return {"status": "success", "stored": stored, "initial_sync_completed": finished}
+		problem_summary: dict[str, Any] = {}
+		try:
+			from .problems import check_archive_problems
+
+			problem_summary = check_archive_problems()
+		except Exception:
+			frappe.log_error(frappe.get_traceback(), "Mail-Archiv-Probleme konnten nicht geprüft werden")
+		return {
+			"status": "success",
+			"stored": stored,
+			"initial_sync_completed": finished,
+			"problems": problem_summary,
+		}
 	except Exception as exc:
 		frappe.db.rollback()
 		account = frappe.get_doc("Mail Archive Account", account_name)
