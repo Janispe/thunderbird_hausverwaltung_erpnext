@@ -96,6 +96,7 @@ override_whitelisted_methods = {
 	"hausverwaltung.hausverwaltung.integrations.thunderbird_bridge.list_devices": "thunderbird_hausverwaltung.thunderbird_hausverwaltung.integrations.thunderbird_bridge.list_devices",
 	"hausverwaltung.hausverwaltung.integrations.thunderbird_bridge.enqueue_search": "thunderbird_hausverwaltung.thunderbird_hausverwaltung.integrations.thunderbird_bridge.enqueue_search",
 	"hausverwaltung.hausverwaltung.integrations.thunderbird_bridge.enqueue_compose": "thunderbird_hausverwaltung.thunderbird_hausverwaltung.integrations.thunderbird_bridge.enqueue_compose",
+	"hausverwaltung.hausverwaltung.integrations.thunderbird_bridge.enqueue_mietvertrag_folder": "thunderbird_hausverwaltung.thunderbird_hausverwaltung.integrations.thunderbird_bridge.enqueue_mietvertrag_folder",
 	"hausverwaltung.hausverwaltung.integrations.thunderbird_bridge.poll_command": "thunderbird_hausverwaltung.thunderbird_hausverwaltung.integrations.thunderbird_bridge.poll_command",
 	"hausverwaltung.hausverwaltung.integrations.thunderbird_bridge.acknowledge_command": "thunderbird_hausverwaltung.thunderbird_hausverwaltung.integrations.thunderbird_bridge.acknowledge_command",
 }

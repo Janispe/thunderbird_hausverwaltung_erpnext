@@ -65,6 +65,23 @@
 		return response.message;
 	}
 
+	async function open_mietvertrag_folder(mietvertrag, options = {}) {
+		if (!mietvertrag) {
+			frappe.throw(__("Mietvertrag fehlt."));
+		}
+		const response = await frappe.call({
+			method: `${method}.enqueue_mietvertrag_folder`,
+			args: {
+				mietvertrag,
+				device_id: options.device_id || null,
+			},
+			freeze: true,
+			freeze_message: __("Mieterordner wird in Thunderbird geöffnet …"),
+		});
+		frappe.show_alert({ message: __("Mieterordner an Thunderbird gesendet."), indicator: "green" });
+		return response.message;
+	}
+
 	async function get_timeline(reference_doctype, reference_name) {
 		const response = await frappe.call({
 			method: `${method}.get_timeline`,
@@ -188,6 +205,7 @@
 		show_messages,
 		compose_message,
 		list_devices,
+		open_mietvertrag_folder,
 		open_timeline,
 		sync_timeline,
 	});

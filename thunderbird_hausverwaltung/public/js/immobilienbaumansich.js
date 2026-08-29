@@ -8,6 +8,38 @@
 
 	function add_mail_buttons(wrapper) {
 		$(wrapper)
+			.find(".mietvertrag-link")
+			.each(function () {
+				const contract_link = $(this);
+				if (contract_link.next(".tb-open-tenant-folder").length) return;
+				const mietvertrag = contract_link.data("mietvertrag");
+				if (!mietvertrag) return;
+
+				const button = $("<button>", {
+					type: "button",
+					class: "btn btn-xs btn-default tb-open-tenant-folder",
+					title: __("Mieterordner in Thunderbird öffnen"),
+					"aria-label": __("Mieterordner in Thunderbird öffnen"),
+					html: frappe.utils.icon("folder-open", "sm"),
+				}).css({ marginLeft: "4px", padding: "1px 5px", lineHeight: "1.35" });
+
+				button.on("click", async function (event) {
+					event.preventDefault();
+					event.stopPropagation();
+					if (!window.hv_thunderbird?.open_mietvertrag_folder) {
+						frappe.throw(__("Die Thunderbird-Brücke ist nicht geladen. Bitte die Seite neu laden."));
+					}
+					button.prop("disabled", true);
+					try {
+						await window.hv_thunderbird.open_mietvertrag_folder(mietvertrag);
+					} finally {
+						button.prop("disabled", false);
+					}
+				});
+				contract_link.after(button);
+			});
+
+		$(wrapper)
 			.find(".mieter-link")
 			.each(function () {
 				const tenant_link = $(this);

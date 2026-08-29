@@ -5,7 +5,13 @@ import json
 import frappe
 from frappe.model.document import Document
 
-ALLOWED_COMMANDS = {"show_messages", "compose_message", "sync_messages", "open_message"}
+ALLOWED_COMMANDS = {
+	"show_messages",
+	"compose_message",
+	"sync_messages",
+	"open_message",
+	"open_folder",
+}
 
 
 class ThunderbirdCommand(Document):

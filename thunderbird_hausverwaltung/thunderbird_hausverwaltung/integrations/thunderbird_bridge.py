@@ -303,6 +303,22 @@ def _device_registration_updates(device: Any, device_name: str, extension_versio
 	return updates
 
 
+def _select_contract_archive_folder(folders: list[Any], mietvertrag: str) -> Any:
+	candidates = [
+		folder
+		for folder in folders
+		if cint(_row_value(folder, "provider_exists"))
+		and str(_row_value(folder, "reference_doctype") or "") == "Mietvertrag"
+		and str(_row_value(folder, "reference_name") or "") == mietvertrag
+		and str(_row_value(folder, "folder_type") or "") != "Strukturordner"
+	]
+	if len(candidates) == 1:
+		return candidates[0]
+	if candidates:
+		raise ValueError("multiple")
+	raise ValueError("missing")
+
+
 @frappe.whitelist()
 def get_mietvertrag_compose_context(mietvertrag: str) -> dict[str, Any]:
 	_require_bridge_user()
@@ -580,6 +596,55 @@ def enqueue_timeline_sync(
 ) -> dict[str, Any]:
 	user = _require_bridge_user()
 	payload = _normalize_timeline_sync_payload(reference_doctype, reference_name)
+	normalized_device_id = ""
+	if device_id:
+		normalized_device_id = _normalize_device_id(device_id)
+		_get_owned_device(normalized_device_id, user)
+	return _enqueue_command(user, payload, normalized_device_id)
+
+
+@frappe.whitelist()
+def enqueue_mietvertrag_folder(
+	mietvertrag: str,
+	device_id: str | None = None,
+) -> dict[str, Any]:
+	user = _require_bridge_user()
+	mietvertrag = str(mietvertrag or "").strip()
+	if not mietvertrag or not frappe.db.exists("Mietvertrag", mietvertrag):
+		frappe.throw(_("Mietvertrag nicht gefunden."), frappe.DoesNotExistError)
+
+	contract = frappe.get_doc("Mietvertrag", mietvertrag)
+	contract.check_permission("read")
+	folders = frappe.get_all(
+		"Mail Archive Folder",
+		fields=[
+			"archive_account",
+			"provider_mailbox_id",
+			"parent_mailbox_id",
+			"folder_name",
+			"folder_path",
+			"folder_type",
+			"provider_exists",
+			"reference_doctype",
+			"reference_name",
+		],
+		limit_page_length=0,
+	)
+	try:
+		folder = _select_contract_archive_folder(folders, contract.name)
+	except ValueError as error:
+		if str(error) == "missing":
+			frappe.throw(_("Für diesen Mietvertrag ist kein Mieterordner im Mailarchiv zugeordnet."))
+		frappe.throw(
+			_("Für diesen Mietvertrag sind mehrere Mieterordner zugeordnet. Bitte die Archivprobleme prüfen.")
+		)
+
+	payload = {
+		"command": "open_folder",
+		"title": _("Mieterordner zu {0}").format(contract.name),
+		"folder_path": str(folder.folder_path or "").strip(),
+		"archive_account": str(folder.archive_account or "").strip(),
+	}
 	normalized_device_id = ""
 	if device_id:
 		normalized_device_id = _normalize_device_id(device_id)

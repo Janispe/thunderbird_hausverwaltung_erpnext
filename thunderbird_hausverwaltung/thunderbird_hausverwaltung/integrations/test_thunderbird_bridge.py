@@ -18,6 +18,7 @@ from thunderbird_hausverwaltung.thunderbird_hausverwaltung.integrations.thunderb
 	_normalize_compose_payload,
 	_normalize_search_payload,
 	_preferred_contact_email,
+	_select_contract_archive_folder,
 )
 
 
@@ -25,8 +26,36 @@ class TestThunderbirdBridge(TestCase):
 	def test_command_validation_supports_all_bridge_commands(self) -> None:
 		self.assertEqual(
 			ALLOWED_COMMANDS,
-			{"show_messages", "compose_message", "sync_messages", "open_message"},
+			{"show_messages", "compose_message", "sync_messages", "open_message", "open_folder"},
 		)
+
+	def test_contract_folder_requires_exactly_one_assignment(self) -> None:
+		folders = [
+			SimpleNamespace(
+				provider_mailbox_id="first",
+				parent_mailbox_id="",
+				folder_name="Müller",
+				provider_exists=1,
+				reference_doctype="Mietvertrag",
+				reference_name="MV-1",
+				folder_type="Mieter-Stammordner",
+			),
+		]
+		self.assertEqual(_select_contract_archive_folder(folders, "MV-1").provider_mailbox_id, "first")
+
+		folders.append(
+			SimpleNamespace(
+				provider_mailbox_id="second",
+				parent_mailbox_id="",
+				folder_name="Müller doppelt",
+				provider_exists=1,
+				reference_doctype="Mietvertrag",
+				reference_name="MV-1",
+				folder_type="Mieter-Stammordner",
+			)
+		)
+		with self.assertRaisesRegex(ValueError, "multiple"):
+			_select_contract_archive_folder(folders, "MV-1")
 
 	def test_contract_contact_names_include_historical_partners_and_deduplicate(self) -> None:
 		contracts = [
