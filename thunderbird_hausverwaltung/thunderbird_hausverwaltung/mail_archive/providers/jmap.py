@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from html.parser import HTMLParser
+import re
 from typing import Any
 from urllib.parse import urljoin
 
@@ -19,6 +21,8 @@ MAIL_CAPABILITY = "urn:ietf:params:jmap:mail"
 DEFAULT_TIMEOUT = 30
 MAX_BODY_VALUE_BYTES = 50_000
 MAILBOX_QUERY_PAGE_SIZE = 500
+DRAFT_HEADER_NAME = "X-Hausverwaltung-Draft-ID"
+DRAFT_HEADER_PROPERTY = f"header:{DRAFT_HEADER_NAME}:asText"
 
 
 class JMAPError(RuntimeError):
@@ -55,17 +59,140 @@ def _string_tuple(value: Any) -> tuple[str, ...]:
 	return tuple(str(item).strip() for item in (value or []) if str(item or "").strip())
 
 
+class _HTMLPlainText(HTMLParser):
+	"""Extract visible text without rendering, executing markup or fetching resources."""
+
+	_hidden_tags = {"head", "script", "style", "template", "noscript"}
+	_block_tags = {
+		"address",
+		"article",
+		"aside",
+		"blockquote",
+		"br",
+		"dd",
+		"div",
+		"dl",
+		"dt",
+		"footer",
+		"h1",
+		"h2",
+		"h3",
+		"h4",
+		"h5",
+		"h6",
+		"header",
+		"hr",
+		"li",
+		"main",
+		"ol",
+		"p",
+		"pre",
+		"section",
+		"table",
+		"tr",
+		"ul",
+	}
+
+	def __init__(self) -> None:
+		super().__init__(convert_charrefs=True)
+		self.chunks: list[str] = []
+		self.hidden: list[str] = []
+
+	def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+		if tag in self._hidden_tags:
+			self.hidden.append(tag)
+		if self.hidden:
+			return
+		if tag in self._block_tags:
+			self.chunks.append("\n")
+		elif tag in {"td", "th"}:
+			self.chunks.append(" ")
+
+	def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+		self.handle_starttag(tag, attrs)
+		self.handle_endtag(tag)
+
+	def handle_endtag(self, tag: str) -> None:
+		if self.hidden:
+			if tag in self.hidden:
+				index = len(self.hidden) - 1 - self.hidden[::-1].index(tag)
+				del self.hidden[index:]
+			return
+		if tag in self._block_tags:
+			self.chunks.append("\n")
+
+	def handle_data(self, data: str) -> None:
+		if not self.hidden:
+			self.chunks.append(re.sub(r"\s+", " ", data))
+
+	def text(self) -> str:
+		return "\n".join(line.strip() for line in "".join(self.chunks).splitlines() if line.strip())
+
+
+def _html_plain_text(value: str) -> str:
+	parser = _HTMLPlainText()
+	parser.feed(value)
+	parser.close()
+	return parser.text()
+
+
 def _extract_text_body(message: dict[str, Any]) -> str:
 	body_values = message.get("bodyValues") or {}
 	parts = message.get("textBody") or []
 	chunks: list[str] = []
 	for part in parts:
+		# RFC 8621 permits an HTML part in textBody when no plaintext alternative exists.
+		# Preserve it in raw for an explicit caller decision instead of presenting markup as text.
+		if str((part or {}).get("type") or "text/plain").casefold() != "text/plain":
+			continue
 		part_id = str((part or {}).get("partId") or "")
 		value = body_values.get(part_id) or {}
 		text = str(value.get("value") or "").strip()
 		if text:
 			chunks.append(text)
+	if chunks:
+		message["body_text_source"] = "plain"
+		return "\n\n".join(chunks)
+	# An HTML-only message may expose its part in textBody, htmlBody or both.
+	seen: set[str] = set()
+	for part in [*(message.get("htmlBody") or []), *parts]:
+		if str((part or {}).get("type") or "").casefold() != "text/html":
+			continue
+		part_id = str((part or {}).get("partId") or "")
+		if part_id in seen:
+			continue
+		seen.add(part_id)
+		value = body_values.get(part_id) or {}
+		text = _html_plain_text(str(value.get("value") or ""))
+		if text:
+			chunks.append(text)
+	if chunks:
+		message["body_text_source"] = "html"
 	return "\n\n".join(chunks)
+
+
+def _draft_header_value(value: str, label: str) -> str:
+	value = str(value or "").strip()
+	if not value or len(value) > 998 or any(ord(char) < 32 or ord(char) == 127 for char in value):
+		raise JMAPError(f"{label} ist leer oder enthält unzulässige Zeichen.")
+	return value
+
+
+def _draft_message_id(value: str) -> str:
+	value = _draft_header_value(value, "Die RFC Message-ID")
+	if value.startswith("<") and value.endswith(">"):
+		value = value[1:-1]
+	# RFC 8621 MessageIds are parsed values: the server adds the angle brackets.
+	if "@" not in value or any(char.isspace() or char in "<>" for char in value):
+		raise JMAPError("Die RFC Message-ID ist ungültig.")
+	return value
+
+
+def _draft_address(value: str) -> dict[str, str]:
+	value = _draft_header_value(value, "Die E-Mail-Adresse")
+	if "@" not in value or any(char.isspace() or char in "<>,;" for char in value):
+		raise JMAPError("Die E-Mail-Adresse ist ungültig.")
+	return {"email": value}
 
 
 class JMAPProvider(MailArchiveProvider):
@@ -205,6 +332,7 @@ class JMAPProvider(MailArchiveProvider):
 			"sortOrder",
 			"totalEmails",
 			"unreadEmails",
+			"myRights",
 		]
 		for offset in range(0, len(mailbox_ids), get_batch_size):
 			result = self._single(
@@ -225,6 +353,7 @@ class JMAPProvider(MailArchiveProvider):
 				sort_order=int(row.get("sortOrder") or 0),
 				total_emails=int(row.get("totalEmails") or 0),
 				unread_emails=int(row.get("unreadEmails") or 0),
+				my_rights=dict(row.get("myRights") or {}),
 			)
 			for row in rows
 		]
@@ -265,12 +394,17 @@ class JMAPProvider(MailArchiveProvider):
 						"subject",
 						"preview",
 						"from",
+						"replyTo",
 						"to",
 						"cc",
 						"messageId",
 						"inReplyTo",
 						"references",
+						"sentAt",
+						DRAFT_HEADER_PROPERTY,
 						"textBody",
+						"htmlBody",
+						"bodyStructure",
 						"bodyValues",
 					],
 					"fetchAllBodyValues": True,
@@ -294,9 +428,7 @@ class JMAPProvider(MailArchiveProvider):
 			thread_id=str(row.get("threadId") or ""),
 			mailbox_ids=tuple((row.get("mailboxIds") or {}).keys()),
 			keywords=tuple(
-				str(keyword).casefold()
-				for keyword, enabled in (row.get("keywords") or {}).items()
-				if enabled
+				str(keyword).casefold() for keyword, enabled in (row.get("keywords") or {}).items() if enabled
 			),
 			rfc_message_ids=_string_tuple(row.get("messageId")),
 			in_reply_to=_string_tuple(row.get("inReplyTo")),
@@ -330,6 +462,94 @@ class JMAPProvider(MailArchiveProvider):
 			raise JMAPError("Die RFC Message-ID ist auf dem Mailserver nicht eindeutig.")
 		messages, _state = self.get_messages(ids)
 		return messages[0] if messages else None
+
+	def _require_drafts_mailbox(self, mailbox_id: str) -> None:
+		account = (self.session.get("accounts") or {}).get(self.account_id) or {}
+		if account.get("isReadOnly"):
+			raise JMAPError("Das JMAP-Konto ist schreibgeschützt.")
+		capabilities = account.get("accountCapabilities")
+		if capabilities is not None and MAIL_CAPABILITY not in capabilities:
+			raise JMAPError("Das JMAP-Konto unterstützt keine Mail-Funktionen.")
+		mailbox = next((item for item in self.list_mailboxes() if item.id == mailbox_id), None)
+		if mailbox is None or mailbox.role != "drafts":
+			raise JMAPError("Das Ziel ist kein verfügbarer JMAP-Entwurfsordner.")
+		if mailbox.my_rights and not all(
+			mailbox.my_rights.get(right) is True
+			for right in ("mayReadItems", "mayAddItems", "maySetKeywords")
+		):
+			raise JMAPError("Für den Entwurfsordner fehlen die erforderlichen Lese- oder Schreibrechte.")
+
+	def create_draft(
+		self,
+		*,
+		mailbox_id: str,
+		sender: str,
+		recipients: list[str],
+		subject: str,
+		text_body: str,
+		draft_token: str,
+		rfc_message_id: str,
+		cc: list[str] | None = None,
+		in_reply_to: tuple[str, ...] = (),
+		references: tuple[str, ...] = (),
+	) -> str:
+		mailbox_id = _draft_header_value(mailbox_id, "Die Entwurfsordner-ID")
+		draft_token = _draft_header_value(draft_token, "Die Entwurfskennung")
+		if not recipients:
+			raise JMAPError("Ein E-Mail-Entwurf benötigt mindestens einen Empfänger.")
+		message: dict[str, Any] = {
+			"mailboxIds": {mailbox_id: True},
+			"keywords": {"$draft": True},
+			"from": [_draft_address(sender)],
+			"to": [_draft_address(value) for value in recipients],
+			"subject": str(subject or ""),
+			"messageId": [_draft_message_id(rfc_message_id)],
+			DRAFT_HEADER_PROPERTY: draft_token,
+			"textBody": [{"partId": "body", "type": "text/plain"}],
+			"bodyValues": {"body": {"value": str(text_body or "")}},
+		}
+		if cc:
+			message["cc"] = [_draft_address(value) for value in cc]
+		if in_reply_to:
+			message["inReplyTo"] = [_draft_message_id(value) for value in in_reply_to]
+		if references:
+			message["references"] = [_draft_message_id(value) for value in references]
+		self._require_drafts_mailbox(mailbox_id)
+		# Email/set only stores mail; delivery requires the separate EmailSubmission API.
+		result = self._single("Email/set", {"accountId": self.account_id, "create": {"draft": message}})
+		failure = (result.get("notCreated") or {}).get("draft")
+		if failure is not None:
+			description = failure.get("description") or failure.get("type") or "Unbekannter Fehler"
+			raise JMAPError(f"Der E-Mail-Entwurf konnte nicht gespeichert werden: {description}")
+		message_id = str(((result.get("created") or {}).get("draft") or {}).get("id") or "")
+		if not message_id:
+			raise JMAPError("JMAP bestätigte keine Message-ID für den E-Mail-Entwurf.")
+		return message_id
+
+	def find_draft_messages(self, draft_token: str) -> list[ArchiveMessage]:
+		draft_token = _draft_header_value(draft_token, "Die Entwurfskennung")
+		result = self._single(
+			"Email/query",
+			{
+				"accountId": self.account_id,
+				"filter": {"header": [DRAFT_HEADER_NAME, draft_token]},
+				"sort": [{"property": "receivedAt", "isAscending": False}],
+				"limit": 3,
+				"calculateTotal": True,
+			},
+		)
+		ids = result.get("ids") or []
+		if len(ids) > 2 or int(result.get("total") or 0) > 2:
+			raise JMAPError(
+				"Die Entwurfskennung ist auf dem Mailserver nicht eindeutig (mehr als zwei Treffer)."
+			)
+		messages, _state = self.get_messages(ids)
+		if len(messages) != len(ids) or {message.id for message in messages} != set(ids):
+			raise JMAPError("Die Entwurfssuche konnte nicht alle gefundenen Nachrichten prüfen.")
+		if any(not isinstance(message.raw.get(DRAFT_HEADER_PROPERTY), str) for message in messages):
+			raise JMAPError("Die Entwurfssuche lieferte keine prüfbare Entwurfskennung.")
+		# Header filters use text matching, so verify the complete token before recovery.
+		return [message for message in messages if message.raw.get(DRAFT_HEADER_PROPERTY) == draft_token]
 
 	def get_changes(self, since_state: str, *, max_changes: int = 500) -> ChangeSet:
 		result = self._single(
@@ -368,9 +588,7 @@ class JMAPProvider(MailArchiveProvider):
 		items = list(updates.items())
 		for offset in range(0, len(items), batch_size):
 			batch = {
-				message_id: {
-					f"keywords/{keyword}": enabled for keyword, enabled in keyword_updates.items()
-				}
+				message_id: {f"keywords/{keyword}": enabled for keyword, enabled in keyword_updates.items()}
 				for message_id, keyword_updates in items[offset : offset + batch_size]
 			}
 			result = self._single(

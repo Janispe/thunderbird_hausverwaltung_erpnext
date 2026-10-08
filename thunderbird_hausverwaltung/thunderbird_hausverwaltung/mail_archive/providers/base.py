@@ -18,6 +18,7 @@ class ArchiveMailbox:
 	sort_order: int = 0
 	total_emails: int = 0
 	unread_emails: int = 0
+	my_rights: dict[str, bool] = field(default_factory=dict, compare=False)
 
 
 @dataclass(frozen=True)
@@ -90,3 +91,24 @@ class MailArchiveProvider(ABC):
 	def patch_keywords(self, updates: dict[str, dict[str, bool | None]]) -> None:
 		"""Apply keyword-only JMAP-style patches without replacing unrelated flags."""
 		pass
+
+	def create_draft(
+		self,
+		*,
+		mailbox_id: str,
+		sender: str,
+		recipients: list[str],
+		subject: str,
+		text_body: str,
+		draft_token: str,
+		rfc_message_id: str,
+		cc: list[str] | None = None,
+		in_reply_to: tuple[str, ...] = (),
+		references: tuple[str, ...] = (),
+	) -> str:
+		"""Create an unsent server-side draft and return its provider message ID."""
+		raise NotImplementedError("Dieser Mail-Provider unterstützt keine Entwurfserstellung.")
+
+	def find_draft_messages(self, draft_token: str) -> list[ArchiveMessage]:
+		"""Find the messages carrying a persistent draft token, including sent copies."""
+		raise NotImplementedError("Dieser Mail-Provider unterstützt keine Entwurfssuche.")
