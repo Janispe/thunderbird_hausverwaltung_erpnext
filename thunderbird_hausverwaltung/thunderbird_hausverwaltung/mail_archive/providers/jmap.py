@@ -13,6 +13,7 @@ from .base import (
 	ArchiveMessage,
 	ChangeSet,
 	ChangeStateUnavailable,
+	DraftNotCreatedError,
 	MailArchiveProvider,
 )
 
@@ -27,6 +28,10 @@ DRAFT_HEADER_PROPERTY = f"header:{DRAFT_HEADER_NAME}:asText"
 
 class JMAPError(RuntimeError):
 	pass
+
+
+class JMAPDraftNotCreatedError(DraftNotCreatedError, JMAPError):
+	"""A JMAP creation failed before writing, or was explicitly notCreated."""
 
 
 @dataclass(frozen=True)
@@ -284,6 +289,15 @@ class JMAPProvider(MailArchiveProvider):
 		responses = data.get("methodResponses") or []
 		if not responses:
 			raise JMAPError(f"JMAP lieferte keine Antwort für {method}.")
+		if (
+			len(responses) != 1
+			or not isinstance(responses[0], (list, tuple))
+			or len(responses[0]) != 3
+			or responses[0][0] != method
+			or responses[0][2] != "0"
+			or not isinstance(responses[0][1], dict)
+		):
+			raise JMAPError(f"JMAP lieferte keine eindeutig zugeordnete Antwort für {method}.")
 		return responses[0][1]
 
 	def test_connection(self) -> dict[str, Any]:
@@ -466,18 +480,20 @@ class JMAPProvider(MailArchiveProvider):
 	def _require_drafts_mailbox(self, mailbox_id: str) -> None:
 		account = (self.session.get("accounts") or {}).get(self.account_id) or {}
 		if account.get("isReadOnly"):
-			raise JMAPError("Das JMAP-Konto ist schreibgeschützt.")
+			raise JMAPDraftNotCreatedError("Das JMAP-Konto ist schreibgeschützt.")
 		capabilities = account.get("accountCapabilities")
 		if capabilities is not None and MAIL_CAPABILITY not in capabilities:
-			raise JMAPError("Das JMAP-Konto unterstützt keine Mail-Funktionen.")
+			raise JMAPDraftNotCreatedError("Das JMAP-Konto unterstützt keine Mail-Funktionen.")
 		mailbox = next((item for item in self.list_mailboxes() if item.id == mailbox_id), None)
 		if mailbox is None or mailbox.role != "drafts":
-			raise JMAPError("Das Ziel ist kein verfügbarer JMAP-Entwurfsordner.")
+			raise JMAPDraftNotCreatedError("Das Ziel ist kein verfügbarer JMAP-Entwurfsordner.")
 		if mailbox.my_rights and not all(
 			mailbox.my_rights.get(right) is True
 			for right in ("mayReadItems", "mayAddItems", "maySetKeywords")
 		):
-			raise JMAPError("Für den Entwurfsordner fehlen die erforderlichen Lese- oder Schreibrechte.")
+			raise JMAPDraftNotCreatedError(
+				"Für den Entwurfsordner fehlen die erforderlichen Lese- oder Schreibrechte."
+			)
 
 	def create_draft(
 		self,
@@ -493,36 +509,78 @@ class JMAPProvider(MailArchiveProvider):
 		in_reply_to: tuple[str, ...] = (),
 		references: tuple[str, ...] = (),
 	) -> str:
-		mailbox_id = _draft_header_value(mailbox_id, "Die Entwurfsordner-ID")
-		draft_token = _draft_header_value(draft_token, "Die Entwurfskennung")
-		if not recipients:
-			raise JMAPError("Ein E-Mail-Entwurf benötigt mindestens einen Empfänger.")
-		message: dict[str, Any] = {
-			"mailboxIds": {mailbox_id: True},
-			"keywords": {"$draft": True},
-			"from": [_draft_address(sender)],
-			"to": [_draft_address(value) for value in recipients],
-			"subject": str(subject or ""),
-			"messageId": [_draft_message_id(rfc_message_id)],
-			DRAFT_HEADER_PROPERTY: draft_token,
-			"textBody": [{"partId": "body", "type": "text/plain"}],
-			"bodyValues": {"body": {"value": str(text_body or "")}},
-		}
-		if cc:
-			message["cc"] = [_draft_address(value) for value in cc]
-		if in_reply_to:
-			message["inReplyTo"] = [_draft_message_id(value) for value in in_reply_to]
-		if references:
-			message["references"] = [_draft_message_id(value) for value in references]
-		self._require_drafts_mailbox(mailbox_id)
+		try:
+			mailbox_id = _draft_header_value(mailbox_id, "Die Entwurfsordner-ID")
+			draft_token = _draft_header_value(draft_token, "Die Entwurfskennung")
+			if not recipients:
+				raise JMAPError("Ein E-Mail-Entwurf benötigt mindestens einen Empfänger.")
+			message: dict[str, Any] = {
+				"mailboxIds": {mailbox_id: True},
+				"keywords": {"$draft": True},
+				"from": [_draft_address(sender)],
+				"to": [_draft_address(value) for value in recipients],
+				"subject": str(subject or ""),
+				"messageId": [_draft_message_id(rfc_message_id)],
+				DRAFT_HEADER_PROPERTY: draft_token,
+				"textBody": [{"partId": "body", "type": "text/plain"}],
+				"bodyValues": {"body": {"value": str(text_body or "")}},
+			}
+			if cc:
+				message["cc"] = [_draft_address(value) for value in cc]
+			if in_reply_to:
+				message["inReplyTo"] = [_draft_message_id(value) for value in in_reply_to]
+			if references:
+				message["references"] = [_draft_message_id(value) for value in references]
+		except JMAPError as exc:
+			# These validators only produce locally generated messages and cannot write.
+			raise JMAPDraftNotCreatedError(str(exc)) from exc
+		except Exception as exc:
+			raise JMAPDraftNotCreatedError("Die Eingaben für den E-Mail-Entwurf sind ungültig.") from exc
+		try:
+			self._require_drafts_mailbox(mailbox_id)
+			account_id = self.account_id
+		except DraftNotCreatedError:
+			raise
+		except Exception as exc:
+			# A failed session/mailbox read occurs before the creation call. Never expose
+			# remote descriptions, URLs or transport details through the retryable error.
+			raise JMAPDraftNotCreatedError(
+				"Das Postfach konnte vor der Entwurfserstellung nicht geprüft werden."
+			) from exc
 		# Email/set only stores mail; delivery requires the separate EmailSubmission API.
-		result = self._single("Email/set", {"accountId": self.account_id, "create": {"draft": message}})
-		failure = (result.get("notCreated") or {}).get("draft")
-		if failure is not None:
-			description = failure.get("description") or failure.get("type") or "Unbekannter Fehler"
-			raise JMAPError(f"Der E-Mail-Entwurf konnte nicht gespeichert werden: {description}")
-		message_id = str(((result.get("created") or {}).get("draft") or {}).get("id") or "")
-		if not message_id:
+		result = self._single("Email/set", {"accountId": account_id, "create": {"draft": message}})
+		if not isinstance(result, dict) or result.get("accountId", account_id) != account_id:
+			raise JMAPError("JMAP lieferte keine prüfbare Antwort zur Entwurfserstellung.")
+		created, not_created = result.get("created"), result.get("notCreated")
+		if any(value is not None and not isinstance(value, dict) for value in (created, not_created)):
+			raise JMAPError("JMAP lieferte keine prüfbare Antwort zur Entwurfserstellung.")
+		created, not_created = created or {}, not_created or {}
+		if not_created:
+			failure = not_created.get("draft")
+			if (
+				created
+				or set(not_created) != {"draft"}
+				or not isinstance(failure, dict)
+				or not isinstance(failure.get("type"), str)
+				or not failure["type"].strip()
+				or any(char.isspace() or ord(char) < 32 for char in failure["type"])
+				or failure["type"].casefold() == "alreadyexists"
+			):
+				raise JMAPError("JMAP lieferte keine eindeutige Ablehnung der Entwurfserstellung.")
+			reasons = {
+				"overQuota": "Das Speicherlimit des Postfachs ist erreicht.",
+				"forbidden": "Der Mailserver hat die Entwurfserstellung wegen fehlender Rechte abgelehnt.",
+				"mailboxReadOnly": "Der Entwurfsordner ist auf dem Mailserver schreibgeschützt.",
+				"invalidProperties": "Der Mailserver hat ungültige Entwurfsfelder abgelehnt.",
+				"invalidEmail": "Der Mailserver hat das Nachrichtenformat des Entwurfs abgelehnt.",
+				"tooLarge": "Der E-Mail-Entwurf überschreitet das Größenlimit des Mailservers.",
+			}
+			raise JMAPDraftNotCreatedError(
+				reasons.get(failure["type"], "Der Mailserver hat die Entwurfserstellung abgelehnt.")
+			)
+		item = created.get("draft")
+		message_id = item.get("id") if isinstance(item, dict) and set(created) == {"draft"} else None
+		if not isinstance(message_id, str) or not message_id:
 			raise JMAPError("JMAP bestätigte keine Message-ID für den E-Mail-Entwurf.")
 		return message_id
 

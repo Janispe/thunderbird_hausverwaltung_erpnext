@@ -3,7 +3,9 @@ from __future__ import annotations
 from unittest import TestCase
 from unittest.mock import Mock
 
-from .base import ArchiveMailbox, MailArchiveProvider
+import requests
+
+from .base import ArchiveMailbox, DraftNotCreatedError, MailArchiveProvider
 from .jmap import (
 	CORE_CAPABILITY,
 	DRAFT_HEADER_NAME,
@@ -104,14 +106,14 @@ class TestJMAPDrafts(TestCase):
 	def test_account_readonly_prevents_creation(self) -> None:
 		self.provider._session["accounts"]["A1"]["isReadOnly"] = True
 		self.provider._single = Mock()
-		with self.assertRaisesRegex(JMAPError, "schreibgeschützt"):
+		with self.assertRaisesRegex(DraftNotCreatedError, "schreibgeschützt"):
 			self.provider.create_draft(**self.arguments)
 		self.provider._single.assert_not_called()
 
 	def test_account_without_mail_capability_prevents_creation(self) -> None:
 		self.provider._session["accounts"]["A1"]["accountCapabilities"] = {}
 		self.provider._single = Mock()
-		with self.assertRaisesRegex(JMAPError, "keine Mail-Funktionen"):
+		with self.assertRaisesRegex(DraftNotCreatedError, "keine Mail-Funktionen"):
 			self.provider.create_draft(**self.arguments)
 		self.provider._single.assert_not_called()
 
@@ -120,7 +122,7 @@ class TestJMAPDrafts(TestCase):
 			with self.subTest(mailboxes=mailboxes):
 				self.provider.list_mailboxes.return_value = mailboxes
 				self.provider._single = Mock()
-				with self.assertRaisesRegex(JMAPError, "kein verfügbarer JMAP-Entwurfsordner"):
+				with self.assertRaisesRegex(DraftNotCreatedError, "kein verfügbarer JMAP-Entwurfsordner"):
 					self.provider.create_draft(**self.arguments)
 				self.provider._single.assert_not_called()
 
@@ -133,7 +135,7 @@ class TestJMAPDrafts(TestCase):
 					ArchiveMailbox(id="D1", name="Entwürfe", role="drafts", my_rights=rights)
 				]
 				self.provider._single = Mock()
-				with self.assertRaisesRegex(JMAPError, "fehlen die erforderlichen"):
+				with self.assertRaisesRegex(DraftNotCreatedError, "fehlen die erforderlichen"):
 					self.provider.create_draft(**self.arguments)
 				self.provider._single.assert_not_called()
 
@@ -143,16 +145,31 @@ class TestJMAPDrafts(TestCase):
 		self.provider._single = Mock(return_value={"created": {"draft": {"id": "E1"}}})
 		self.assertEqual(self.provider.create_draft(**self.arguments), "E1")
 
-	def test_server_creation_error_is_propagated_without_retry(self) -> None:
-		self.provider._single = Mock(return_value={"notCreated": {"draft": {"type": "overQuota"}}})
-		with self.assertRaisesRegex(JMAPError, "overQuota"):
-			self.provider.create_draft(**self.arguments)
-		self.provider._single.assert_called_once()
+	def test_server_creation_rejection_is_definitive_and_sanitized_without_retry(self) -> None:
+		for error_type, expected in (
+			("overQuota", "Speicherlimit"),
+			("forbidden", "fehlender Rechte"),
+			("unknownServerError", "abgelehnt"),
+		):
+			with self.subTest(error_type=error_type):
+				self.provider._single = Mock(
+					return_value={
+						"notCreated": {
+							"draft": {"type": error_type, "description": "SECRET https://private.example"}
+						}
+					}
+				)
+				with self.assertRaisesRegex(DraftNotCreatedError, expected) as caught:
+					self.provider.create_draft(**self.arguments)
+				self.assertNotIn("SECRET", str(caught.exception))
+				self.assertNotIn("private.example", str(caught.exception))
+				self.provider._single.assert_called_once()
 
 	def test_missing_created_message_id_is_an_error(self) -> None:
 		self.provider._single = Mock(return_value={"created": {"draft": {}}})
-		with self.assertRaisesRegex(JMAPError, "keine Message-ID"):
+		with self.assertRaisesRegex(JMAPError, "keine Message-ID") as caught:
 			self.provider.create_draft(**self.arguments)
+		self.assertNotIsInstance(caught.exception, DraftNotCreatedError)
 
 	def test_invalid_recipient_token_and_message_id_are_rejected_before_network_access(self) -> None:
 		for change in (
@@ -163,9 +180,83 @@ class TestJMAPDrafts(TestCase):
 		):
 			with self.subTest(change=change):
 				self.provider._single = Mock()
-				with self.assertRaises(JMAPError):
+				with self.assertRaises(DraftNotCreatedError):
 					self.provider.create_draft(**(self.arguments | change))
 				self.provider._single.assert_not_called()
+
+	def test_failed_preflight_read_is_definitive_without_exposing_remote_details(self) -> None:
+		self.provider.list_mailboxes.side_effect = JMAPError("SECRET: untrusted remote description")
+		self.provider._single = Mock()
+		with self.assertRaisesRegex(DraftNotCreatedError, "vor der Entwurfserstellung") as caught:
+			self.provider.create_draft(**self.arguments)
+		self.assertNotIn("SECRET", str(caught.exception))
+		self.provider._single.assert_not_called()
+
+	def test_ambiguous_or_malformed_set_rejection_never_proves_no_creation(self) -> None:
+		responses = (
+			{"notCreated": {"draft": {"type": "alreadyExists", "existingId": "E1"}}},
+			{"notCreated": {"draft": {"type": "AlreadyExists"}}},
+			{"notCreated": {"draft": {"type": "overQuota "}}},
+			{
+				"created": {"draft": {"id": "E1"}},
+				"notCreated": {"draft": {"type": "overQuota"}},
+			},
+			{"created": {"other": {"id": "E1"}}, "notCreated": {"draft": {"type": "overQuota"}}},
+			{"notCreated": {"draft": {"description": "overQuota"}}},
+			{"notCreated": {"draft": {"type": 1}}},
+			{"notCreated": {"draft": None}},
+			{"notCreated": {"draft": {"type": "overQuota"}, "other": {"type": "overQuota"}}},
+			{"notCreated": []},
+			{"created": [], "notCreated": {"draft": {"type": "overQuota"}}},
+			{"accountId": "OTHER", "notCreated": {"draft": {"type": "overQuota"}}},
+			{"created": {"draft": {"id": 1}}},
+			None,
+		)
+		for response in responses:
+			with self.subTest(response=response):
+				self.provider._single = Mock(return_value=response)
+				with self.assertRaises(JMAPError) as caught:
+					self.provider.create_draft(**self.arguments)
+				self.assertNotIsInstance(caught.exception, DraftNotCreatedError)
+				self.provider._single.assert_called_once()
+
+	def test_write_transport_http_and_json_errors_remain_uncertain(self) -> None:
+		for response_or_exception in (
+			requests.Timeout("SECRET timeout"),
+			requests.ConnectionError("SECRET connection"),
+			Mock(ok=False, status_code=403),
+			Mock(ok=False, status_code=503),
+			Mock(ok=True, json=Mock(side_effect=ValueError("SECRET JSON"))),
+			Mock(ok=True, json=Mock(return_value={"methodResponses": []})),
+		):
+			with self.subTest(response_or_exception=response_or_exception):
+				self.provider.http.post = Mock()
+				if isinstance(response_or_exception, Exception):
+					self.provider.http.post.side_effect = response_or_exception
+				else:
+					self.provider.http.post.return_value = response_or_exception
+				with self.assertRaises(JMAPError) as caught:
+					self.provider.create_draft(**self.arguments)
+				self.assertNotIsInstance(caught.exception, DraftNotCreatedError)
+				self.provider.http.post.assert_called_once()
+				methods = self.provider.http.post.call_args.kwargs["json"]["methodCalls"]
+				self.assertEqual([method[0] for method in methods], ["Email/set"])
+
+	def test_uncorrelated_not_created_response_is_not_a_definitive_rejection(self) -> None:
+		rejection = {"notCreated": {"draft": {"type": "overQuota"}}}
+		for responses in (
+			[["Email/get", rejection, "0"]],
+			[["Email/set", rejection, "OTHER"]],
+			[["Email/set", rejection, "0"], ["Email/set", rejection, "0"]],
+		):
+			with self.subTest(responses=responses):
+				self.provider.http.post = Mock(
+					return_value=Mock(ok=True, json=Mock(return_value={"methodResponses": responses}))
+				)
+				with self.assertRaises(JMAPError) as caught:
+					self.provider.create_draft(**self.arguments)
+				self.assertNotIsInstance(caught.exception, DraftNotCreatedError)
+				self.provider.http.post.assert_called_once()
 
 	def test_recovery_query_includes_sent_messages_and_exposes_exact_token(self) -> None:
 		self.provider._single = Mock(

@@ -9,6 +9,14 @@ class ChangeStateUnavailable(RuntimeError):
 	"""The provider can no longer calculate changes from a persisted state."""
 
 
+class DraftNotCreatedError(RuntimeError):
+	"""A draft creation was definitively rejected without creating a message.
+
+	Providers must not use this for a write whose outcome is unknown. The public
+	message must be locally generated rather than copied from a server response.
+	"""
+
+
 @dataclass(frozen=True)
 class ArchiveMailbox:
 	id: str
@@ -106,7 +114,7 @@ class MailArchiveProvider(ABC):
 		in_reply_to: tuple[str, ...] = (),
 		references: tuple[str, ...] = (),
 	) -> str:
-		"""Create an unsent server-side draft and return its provider message ID."""
+		"""Create an unsent draft; DraftNotCreatedError proves no message was created."""
 		raise NotImplementedError("Dieser Mail-Provider unterstützt keine Entwurfserstellung.")
 
 	def find_draft_messages(self, draft_token: str) -> list[ArchiveMessage]:
