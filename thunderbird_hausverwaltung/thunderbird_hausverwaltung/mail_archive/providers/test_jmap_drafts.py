@@ -455,6 +455,36 @@ class TestJMAPDraftAttachments(TestCase):
 		self.assertIn("textBody", message)
 		self.assertNotIn("bodyStructure", message)
 
+	def test_upload_mime_type_accepts_case_whitespace_and_parameters_for_text_and_pdf(self):
+		for requested, returned in [
+			("application/pdf", "Application/PDF; charset=binary"),
+			("text/plain", " Text/Plain ; charset=utf-8"),
+		]:
+			with self.subTest(requested=requested):
+				files = [self.attachments[0] | {"content_type": requested}]
+				self.provider.http.post.return_value.json.return_value = {
+					"accountId": "A1",
+					"blobId": "B1",
+					"size": len(files[0]["content"]),
+					"type": returned,
+				}
+				self.assertEqual(self.provider.create_draft(**self.arguments, attachments=files), "E1")
+				parts = self.provider._single.call_args.args[1]["create"]["draft"]["attachments"]
+				self.assertEqual(parts[0]["type"], requested)
+
+	def test_upload_mime_type_rejects_mismatch_malformed_and_header_injection(self):
+		for returned in ["text/plain", "bad", None, {"type": "application/pdf"}, "application/pdf\r\nX: bad"]:
+			with self.subTest(returned=returned):
+				self.provider.http.post.return_value.json.return_value = {
+					"accountId": "A1",
+					"blobId": "B1",
+					"size": len(self.attachments[0]["content"]),
+					"type": returned,
+				}
+				with self.assertRaises(DraftNotCreatedError):
+					self.provider.create_draft(**self.arguments, attachments=self.attachments)
+				self.provider._single.assert_not_called()
+
 	def _before_creation(self):
 		self.provider._single.assert_not_called()
 		return Mock(

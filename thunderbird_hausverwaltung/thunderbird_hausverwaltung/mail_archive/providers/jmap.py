@@ -203,6 +203,13 @@ def _draft_address(value: str) -> dict[str, str]:
 	return {"email": value}
 
 
+def _media_type(value: Any) -> str | None:
+	if not isinstance(value, str) or any(ord(char) < 32 or ord(char) == 127 for char in value):
+		return None
+	media = value.split(";", 1)[0].strip().lower()
+	return media if re.fullmatch(r"[a-z0-9!#$&^_.+-]{1,80}/[a-z0-9!#$&^_.+-]{1,80}", media) else None
+
+
 class JMAPProvider(MailArchiveProvider):
 	def __init__(self, config: JMAPConfig) -> None:
 		self.config = config
@@ -663,7 +670,7 @@ class JMAPProvider(MailArchiveProvider):
 					or not uploaded["blobId"]
 					or type(uploaded.get("size")) is not int
 					or uploaded["size"] != len(item["content"])
-					or uploaded.get("type") != item["content_type"]
+					or _media_type(uploaded.get("type")) != _media_type(item["content_type"])
 				):
 					raise JMAPError("Unverifiable upload")
 			except Exception as exc:
