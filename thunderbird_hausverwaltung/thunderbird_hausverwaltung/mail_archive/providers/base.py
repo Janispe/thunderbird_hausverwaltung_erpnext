@@ -113,6 +113,7 @@ class MailArchiveProvider(ABC):
 		cc: list[str] | None = None,
 		in_reply_to: tuple[str, ...] = (),
 		references: tuple[str, ...] = (),
+		attachments: list[dict] | None = None,
 	) -> str:
 		"""Create an unsent draft; DraftNotCreatedError proves no message was created."""
 		raise NotImplementedError("Dieser Mail-Provider unterstützt keine Entwurfserstellung.")

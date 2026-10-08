@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from html.parser import HTMLParser
 import re
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import quote, urljoin, urlsplit
 
 import requests
 
@@ -24,6 +24,9 @@ MAX_BODY_VALUE_BYTES = 50_000
 MAILBOX_QUERY_PAGE_SIZE = 500
 DRAFT_HEADER_NAME = "X-Hausverwaltung-Draft-ID"
 DRAFT_HEADER_PROPERTY = f"header:{DRAFT_HEADER_NAME}:asText"
+MAX_DRAFT_ATTACHMENTS = 10
+MAX_DRAFT_ATTACHMENT_BYTES = 10 * 1024 * 1024
+MAX_DRAFT_TOTAL_ATTACHMENT_BYTES = 20 * 1024 * 1024
 
 
 class JMAPError(RuntimeError):
@@ -508,6 +511,7 @@ class JMAPProvider(MailArchiveProvider):
 		cc: list[str] | None = None,
 		in_reply_to: tuple[str, ...] = (),
 		references: tuple[str, ...] = (),
+		attachments: list[dict] | None = None,
 	) -> str:
 		try:
 			mailbox_id = _draft_header_value(mailbox_id, "Die Entwurfsordner-ID")
@@ -539,6 +543,10 @@ class JMAPProvider(MailArchiveProvider):
 		try:
 			self._require_drafts_mailbox(mailbox_id)
 			account_id = self.account_id
+			if attachments is not None:
+				parts = self._upload_draft_attachments(attachments)
+				if parts:
+					message["attachments"] = parts
 		except DraftNotCreatedError:
 			raise
 		except Exception as exc:
@@ -583,6 +591,94 @@ class JMAPProvider(MailArchiveProvider):
 		if not isinstance(message_id, str) or not message_id:
 			raise JMAPError("JMAP bestätigte keine Message-ID für den E-Mail-Entwurf.")
 		return message_id
+
+	def _upload_draft_attachments(self, attachments: list[dict]) -> list[dict]:
+		"""Upload blobs before Email/set. Even an uncertain upload created no Email."""
+		if not isinstance(attachments, list) or len(attachments) > MAX_DRAFT_ATTACHMENTS:
+			raise JMAPDraftNotCreatedError("Höchstens 10 Anhänge erlaubt.")
+		if not attachments:
+			return []
+		total = 0
+		for item in attachments:
+			if not isinstance(item, dict):
+				raise JMAPDraftNotCreatedError("Ungültiger Anhang.")
+			name, media, content = item.get("filename"), item.get("content_type"), item.get("content")
+			if (
+				not isinstance(name, str)
+				or not name.strip()
+				or len(name) > 200
+				or name.strip() in {".", ".."}
+				or any(ord(char) < 32 or ord(char) == 127 or char in "/\\" for char in name)
+				or not isinstance(media, str)
+				or not re.fullmatch(r"[A-Za-z0-9!#$&^_.+-]{1,80}/[A-Za-z0-9!#$&^_.+-]{1,80}", media)
+				or not isinstance(content, bytes)
+			):
+				raise JMAPDraftNotCreatedError("Ungültiger Anhang.")
+			total += len(content)
+			if len(content) > MAX_DRAFT_ATTACHMENT_BYTES or total > MAX_DRAFT_TOTAL_ATTACHMENT_BYTES:
+				raise JMAPDraftNotCreatedError("Die Anhänge überschreiten das Größenlimit.")
+		core = self.session["capabilities"].get(CORE_CAPABILITY) or {}
+		mail = (
+			(self.session.get("accounts") or {}).get(self.account_id, {}).get("accountCapabilities") or {}
+		).get(MAIL_CAPABILITY) or {}
+		for limit, sizes in (
+			(core.get("maxSizeUpload"), [len(item["content"]) for item in attachments]),
+			(mail.get("maxSizeAttachmentsPerEmail"), [total]),
+		):
+			if isinstance(limit, int) and not isinstance(limit, bool) and any(size > limit for size in sizes):
+				raise JMAPDraftNotCreatedError("Die Anhänge überschreiten das Größenlimit des Mailservers.")
+		template = self.session.get("uploadUrl")
+		if not isinstance(template, str) or "{accountId}" not in template:
+			raise JMAPDraftNotCreatedError("Der Mailserver bietet keinen prüfbaren Datei-Upload an.")
+		url = template.replace("{accountId}", quote(self.account_id, safe=""))
+		parsed, api = urlsplit(url), urlsplit(self.session["apiUrl"])
+		if (
+			parsed.scheme not in {"http", "https"}
+			or parsed.netloc != api.netloc
+			or parsed.scheme != api.scheme
+			or parsed.username
+			or parsed.password
+			or "{" in url
+			or "}" in url
+			or parsed.fragment
+		):
+			raise JMAPDraftNotCreatedError("Der Upload muss denselben Mailserver wie die JMAP-API verwenden.")
+		parts = []
+		for item in attachments:
+			try:
+				response = self.http.post(
+					url,
+					data=item["content"],
+					headers={"Content-Type": item["content_type"], "Accept": "application/json"},
+					timeout=self.config.timeout,
+					allow_redirects=False,
+				)
+				if not 200 <= response.status_code < 300:
+					raise JMAPError("Upload rejected")
+				uploaded = response.json()
+				if (
+					not isinstance(uploaded, dict)
+					or uploaded.get("accountId") != self.account_id
+					or not isinstance(uploaded.get("blobId"), str)
+					or not uploaded["blobId"]
+					or type(uploaded.get("size")) is not int
+					or uploaded["size"] != len(item["content"])
+					or uploaded.get("type") != item["content_type"]
+				):
+					raise JMAPError("Unverifiable upload")
+			except Exception as exc:
+				raise JMAPDraftNotCreatedError(
+					"Anhang konnte nicht hochgeladen werden; kein Mailentwurf erstellt."
+				) from exc
+			parts.append(
+				{
+					"blobId": uploaded["blobId"],
+					"name": item["filename"],
+					"type": item["content_type"],
+					"disposition": "attachment",
+				}
+			)
+		return parts
 
 	def find_draft_messages(self, draft_token: str) -> list[ArchiveMessage]:
 		draft_token = _draft_header_value(draft_token, "Die Entwurfskennung")

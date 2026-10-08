@@ -403,3 +403,132 @@ class TestJMAPDrafts(TestCase):
 			legacy.create_draft(**self.arguments)
 		with self.assertRaises(NotImplementedError):
 			legacy.find_draft_messages("hv-draft-123")
+
+
+class TestJMAPDraftAttachments(TestCase):
+	def setUp(self):
+		TestJMAPDrafts.setUp(self)
+		self.provider._session["uploadUrl"] = "https://mail.example/upload/{accountId}"
+		self.attachments = [
+			{"filename": "Abrechnung.pdf", "content_type": "application/pdf", "content": b"%PDF-1.7\x00\xff"}
+		]
+		self.provider._single = Mock(return_value={"created": {"draft": {"id": "E1"}}})
+		self.provider.http.post = Mock(
+			return_value=Mock(
+				status_code=201,
+				json=Mock(
+					return_value={
+						"accountId": "A1",
+						"blobId": "B1",
+						"size": len(self.attachments[0]["content"]),
+						"type": "application/pdf",
+					}
+				),
+			)
+		)
+
+	def test_blob_upload_precedes_unsent_creation_and_keeps_binary(self):
+		self.provider.http.post.side_effect = lambda *a, **k: self._before_creation()
+		self.assertEqual(self.provider.create_draft(**self.arguments, attachments=self.attachments), "E1")
+		self.provider.http.post.assert_called_once_with(
+			"https://mail.example/upload/A1",
+			data=self.attachments[0]["content"],
+			headers={"Content-Type": "application/pdf", "Accept": "application/json"},
+			timeout=30,
+			allow_redirects=False,
+		)
+		method, args = self.provider._single.call_args.args
+		self.assertEqual(method, "Email/set")
+		message = args["create"]["draft"]
+		self.assertEqual(
+			message["attachments"],
+			[
+				{
+					"blobId": "B1",
+					"name": "Abrechnung.pdf",
+					"type": "application/pdf",
+					"disposition": "attachment",
+				}
+			],
+		)
+		self.assertEqual(message["keywords"], {"$draft": True})
+		self.assertIn("textBody", message)
+		self.assertNotIn("bodyStructure", message)
+
+	def _before_creation(self):
+		self.provider._single.assert_not_called()
+		return Mock(
+			status_code=201,
+			json=Mock(
+				return_value={
+					"accountId": "A1",
+					"blobId": "B1",
+					"size": len(self.attachments[0]["content"]),
+					"type": "application/pdf",
+				}
+			),
+		)
+
+	def test_upload_failures_prove_no_email_created(self):
+		for response in [
+			Mock(status_code=403),
+			Mock(status_code=302),
+			Mock(status_code=201, json=Mock(side_effect=ValueError())),
+			Mock(
+				status_code=201,
+				json=Mock(
+					return_value={"accountId": "other", "blobId": "B1", "size": 10, "type": "application/pdf"}
+				),
+			),
+		]:
+			with self.subTest(response=response):
+				self.provider.http.post.return_value = response
+				with self.assertRaises(DraftNotCreatedError):
+					self.provider.create_draft(**self.arguments, attachments=self.attachments)
+				self.provider._single.assert_not_called()
+		self.provider.http.post.side_effect = requests.Timeout("sensitive URL")
+		with self.assertRaises(DraftNotCreatedError) as raised:
+			self.provider.create_draft(**self.arguments, attachments=self.attachments)
+		self.assertNotIn("sensitive", str(raised.exception))
+		self.provider._single.assert_not_called()
+
+	def test_second_upload_failure_never_creates_partial_draft(self):
+		self.provider.http.post.side_effect = [self._before_creation(), requests.ConnectionError()]
+		with self.assertRaises(DraftNotCreatedError):
+			self.provider.create_draft(**self.arguments, attachments=self.attachments * 2)
+		self.provider._single.assert_not_called()
+
+	def test_server_limits_and_bad_metadata_prevent_upload(self):
+		self.provider._session["capabilities"][CORE_CAPABILITY]["maxSizeUpload"] = 1
+		with self.assertRaises(DraftNotCreatedError):
+			self.provider.create_draft(**self.arguments, attachments=self.attachments)
+		self.provider.http.post.assert_not_called()
+		del self.provider._session["capabilities"][CORE_CAPABILITY]["maxSizeUpload"]
+		for values in [
+			self.attachments * 11,
+			[self.attachments[0] | {"filename": "../a"}],
+			[self.attachments[0] | {"content": "decoded"}],
+			{},
+		]:
+			with self.assertRaises(DraftNotCreatedError):
+				self.provider.create_draft(**self.arguments, attachments=values)
+		self.provider.http.post.assert_not_called()
+		self.provider._single.assert_not_called()
+
+	def test_foreign_upload_host_and_missing_template_prevent_upload(self):
+		for url in [
+			None,
+			"https://mail.example/upload",
+			"https://other.example/upload/{accountId}",
+			"https://mail.example/upload/{accountId}/{unknown}",
+		]:
+			self.provider._session["uploadUrl"] = url
+			with self.assertRaises(DraftNotCreatedError):
+				self.provider.create_draft(**self.arguments, attachments=self.attachments)
+		self.provider.http.post.assert_not_called()
+		self.provider._single.assert_not_called()
+
+	def test_empty_attachments_keep_original_creation_path(self):
+		self.provider.create_draft(**self.arguments, attachments=[])
+		self.provider.http.post.assert_not_called()
+		self.assertNotIn("attachments", self.provider._single.call_args.args[1]["create"]["draft"])
